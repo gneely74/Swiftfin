@@ -144,8 +144,14 @@ extension UserSessionManager {
         case .setPlaybackOrder, .setRepeatMode, .setShuffleQueue:
             // TODO: Implement when queue shuffling exists
             return
-        case .mute, .setVolume, .toggleMute, .unmute, .volumeDown, .volumeUp:
-            // Ignore volume commands since this would be iOS only
+        case .mute:
+            mediaPlayerManager?.proxy?.mute()
+        case .unmute:
+            mediaPlayerManager?.proxy?.unmute()
+        case .toggleMute:
+            mediaPlayerManager?.proxy?.toggleMute()
+        case .setVolume, .volumeDown, .volumeUp:
+            // Master volume commands remain ignored on tvOS
             return
         default:
             // Ignore navigation commands

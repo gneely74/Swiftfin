@@ -19,6 +19,7 @@ import SwiftUI
 protocol MediaPlayerProxy: ObservableObject, MediaPlayerObserver {
 
     var isBuffering: PublishedBox<Bool> { get }
+    var isMuted: PublishedBox<Bool> { get }
 
     func play()
     func pause()
@@ -28,6 +29,12 @@ protocol MediaPlayerProxy: ObservableObject, MediaPlayerObserver {
     func jumpBackward(_ seconds: Duration)
     func setRate(_ rate: Float)
     func setSeconds(_ seconds: Duration)
+
+    // MARK: - Audio Stream Muting
+
+    func mute()
+    func unmute()
+    func toggleMute()
 }
 
 @MainActor

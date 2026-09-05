@@ -12,16 +12,27 @@ import JellyfinAPI
 import SwiftUI
 import VLCUI
 
+#if os(tvOS)
+import TVVLCKit
+#else
+import MobileVLCKit
+#endif
+
 class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
     MediaPlayerOffsetConfigurable,
     MediaPlayerSubtitleConfigurable
 {
 
     let isBuffering: PublishedBox<Bool> = .init(initialValue: false)
+    let isMuted: PublishedBox<Bool> = .init(initialValue: false)
     let videoSize: PublishedBox<CGSize> = .init(initialValue: .zero)
     let droppedFrames: PublishedBox<Int> = .init(initialValue: 0)
     let corruptedFrames: PublishedBox<Int> = .init(initialValue: 0)
     let vlcUIProxy: VLCVideoPlayer.Proxy = .init()
+
+    private var vlcPlayer: VLCMediaPlayer? {
+        Mirror(reflecting: vlcUIProxy).children.first(where: { $0.label == "mediaPlayer" })?.value as? VLCMediaPlayer
+    }
 
     weak var manager: MediaPlayerManager? {
         didSet {
@@ -72,6 +83,30 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
     func setSeconds(_ seconds: Duration) {
         vlcUIProxy.setSeconds(seconds)
+    }
+
+    // MARK: - ContentFilter Audio Stream Muting
+
+    func mute() {
+        if let audio = vlcPlayer?.audio {
+            audio.isMuted = true
+        }
+        isMuted.value = true
+    }
+
+    func unmute() {
+        if let audio = vlcPlayer?.audio {
+            audio.isMuted = false
+        }
+        isMuted.value = false
+    }
+
+    func toggleMute() {
+        if isMuted.value {
+            unmute()
+        } else {
+            mute()
+        }
     }
 
     func setAudioStream(_ stream: MediaStream) {

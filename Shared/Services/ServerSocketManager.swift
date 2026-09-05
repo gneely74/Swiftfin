@@ -125,6 +125,9 @@ final class ServerSocketManager {
                     .setAudioStreamIndex,
                     .setMaxStreamingBitrate,
                     .setSubtitleStreamIndex,
+                    .mute,
+                    .unmute,
+                    .toggleMute,
                 ],
                 playableMediaTypes: [.video]
             )

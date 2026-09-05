@@ -24,6 +24,7 @@ import SwiftUI
 class AVMediaPlayerProxy: VideoMediaPlayerProxy {
 
     let isBuffering: PublishedBox<Bool> = .init(initialValue: false)
+    let isMuted: PublishedBox<Bool> = .init(initialValue: false)
     var isScrubbing: Binding<Bool> = .constant(false)
     var scrubbedSeconds: Binding<Duration> = .constant(.zero)
     var videoSize: PublishedBox<CGSize> = .init(initialValue: .zero)
@@ -120,6 +121,23 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
         player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
+    // MARK: - ContentFilter Audio Stream Muting
+
+    func mute() {
+        player.isMuted = true
+        isMuted.value = true
+    }
+
+    func unmute() {
+        player.isMuted = false
+        isMuted.value = false
+    }
+
+    func toggleMute() {
+        player.isMuted.toggle()
+        isMuted.value = player.isMuted
+    }
+
     // TODO: complete
     func setRate(_ rate: Float) {}
     func setAudioStream(_ stream: MediaStream) {}
@@ -165,6 +183,8 @@ extension AVMediaPlayerProxy {
         newAVPlayerItem.externalMetadata = item.baseItem.avMetadata
 
         player.replaceCurrentItem(with: newAVPlayerItem)
+        player.isMuted = false
+        isMuted.value = false
 
         // TODO: protect against paused
 //        rateObserver = player.observe(\.rate, options: [.new, .initial]) { _, value in

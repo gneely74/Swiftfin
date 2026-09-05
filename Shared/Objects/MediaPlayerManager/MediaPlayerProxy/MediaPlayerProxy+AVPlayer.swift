@@ -133,17 +133,16 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
         fadeTask?.cancel()
         isMuted.value = true
         manager?.contentFilterManager.isMuted = true
+        player.isMuted = true
 
-        guard faded else {
-            player.isMuted = true
-            return
-        }
+        #if !os(tvOS)
+        guard faded else { return }
 
         let initialVolume = player.volume > 0 ? player.volume : 1.0
         fadeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let steps = 8
-            let stepDelay: UInt64 = 18_000_000 // 18ms * 8 = ~144ms smooth ramp
+            let steps = 4
+            let stepDelay: UInt64 = 10_000_000 // 10ms * 4 = ~40ms fast ramp
             for step in 1 ... steps {
                 if Task.isCancelled {
                     return
@@ -152,9 +151,9 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
                 let factor = Float(steps - step) / Float(steps)
                 self.player.volume = initialVolume * factor
             }
-            self.player.isMuted = true
             self.player.volume = initialVolume
         }
+        #endif
     }
 
     func unmute() {
@@ -166,6 +165,10 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
         isMuted.value = false
         manager?.contentFilterManager.isMuted = false
 
+        #if os(tvOS)
+        player.isMuted = false
+        player.volume = 1.0
+        #else
         guard faded else {
             player.isMuted = false
             player.volume = 1.0
@@ -176,8 +179,8 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
         player.isMuted = false
         fadeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let steps = 8
-            let stepDelay: UInt64 = 20_000_000 // 20ms * 8 = ~160ms smooth ramp
+            let steps = 4
+            let stepDelay: UInt64 = 10_000_000 // 10ms * 4 = ~40ms fast ramp
             for step in 1 ... steps {
                 if Task.isCancelled {
                     return
@@ -188,6 +191,7 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
             }
             self.player.volume = 1.0
         }
+        #endif
     }
 
     func toggleMute() {

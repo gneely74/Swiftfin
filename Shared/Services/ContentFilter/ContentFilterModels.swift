@@ -87,11 +87,15 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
 
     var isMute: Bool {
         action.caseInsensitiveCompare("mute") == .orderedSame ||
-            (action.caseInsensitiveCompare("skip") == .orderedSame && channel.caseInsensitiveCompare("audio") == .orderedSame)
+            (action.caseInsensitiveCompare("skip") == .orderedSame && channel.caseInsensitiveCompare("audio") == .orderedSame) ||
+            category.localizedCaseInsensitiveContains("Language") ||
+            category.localizedCaseInsensitiveContains("Profanity")
     }
 
     var isSkip: Bool {
-        action.caseInsensitiveCompare("skip") == .orderedSame && channel.caseInsensitiveCompare("audio") != .orderedSame
+        (action.caseInsensitiveCompare("skip") == .orderedSame && channel.caseInsensitiveCompare("audio") != .orderedSame) &&
+            !category.localizedCaseInsensitiveContains("Language") &&
+            !category.localizedCaseInsensitiveContains("Profanity")
     }
 
     var startSeconds: Double {

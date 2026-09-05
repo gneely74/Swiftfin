@@ -103,6 +103,18 @@ extension UserSessionManager {
             guard let ticks = playstateCommand.seekPositionTicks else { return }
             let currentSec = mediaPlayerManager.seconds.seconds
             let targetSec = Duration.ticks(ticks).seconds
+
+            // Guard against unwanted fallback-to-skip seeks that cut out spoken words when Swiftfin mutes client-side
+            if mediaPlayerManager.contentFilterManager.hasCues,
+               let _ = mediaPlayerManager.contentFilterManager.cues.first(where: { cue in
+                   cue.enabled && cue.isMute &&
+                       abs(cue.endSeconds - targetSec) < 1.5 &&
+                       currentSec >= (cue.startSeconds - 3.0) && currentSec <= cue.endSeconds
+               })
+            {
+                return
+            }
+
             mediaPlayerManager.proxy?.setSeconds(.ticks(ticks))
 
             if let currentCue = mediaPlayerManager.contentFilterManager.currentActiveCue, currentCue.isSkip {

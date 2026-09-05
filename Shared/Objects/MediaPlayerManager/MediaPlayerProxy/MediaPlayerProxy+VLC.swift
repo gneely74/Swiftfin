@@ -116,17 +116,16 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         fadeTask?.cancel()
         isMuted.value = true
         manager?.contentFilterManager.isMuted = true
+        vlcPlayer?.audio?.isMuted = true
 
-        guard faded, let audio = vlcPlayer?.audio else {
-            vlcPlayer?.audio?.isMuted = true
-            return
-        }
+        #if !os(tvOS)
+        guard faded, let audio = vlcPlayer?.audio else { return }
 
         let initialVolume = audio.volume > 0 ? audio.volume : 100
         fadeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let steps = 8
-            let stepDelay: UInt64 = 18_000_000 // ~144ms ramp
+            let steps = 4
+            let stepDelay: UInt64 = 10_000_000 // 10ms * 4 = ~40ms ramp
             for step in 1 ... steps {
                 if Task.isCancelled {
                     return
@@ -135,9 +134,9 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
                 let factor = Float(steps - step) / Float(steps)
                 self.vlcPlayer?.audio?.volume = Int32(Float(initialVolume) * factor)
             }
-            self.vlcPlayer?.audio?.isMuted = true
             self.vlcPlayer?.audio?.volume = initialVolume
         }
+        #endif
     }
 
     func unmute() {

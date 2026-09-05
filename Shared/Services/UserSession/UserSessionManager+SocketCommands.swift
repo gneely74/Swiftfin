@@ -101,7 +101,19 @@ extension UserSessionManager {
             mediaPlayerManager.proxy?.jumpBackward(Defaults[.VideoPlayer.jumpBackwardInterval].rawValue)
         case .seek:
             guard let ticks = playstateCommand.seekPositionTicks else { return }
+            let currentSec = mediaPlayerManager.seconds.seconds
+            let targetSec = Duration.ticks(ticks).seconds
             mediaPlayerManager.proxy?.setSeconds(.ticks(ticks))
+
+            if let currentCue = mediaPlayerManager.contentFilterManager.currentActiveCue, currentCue.isSkip {
+                mediaPlayerManager.contentFilterManager.triggerSkip(reason: currentCue.description ?? currentCue.category)
+            } else if targetSec > currentSec,
+                      let skippedCue = mediaPlayerManager.contentFilterManager.skipCues.first(where: {
+                          $0.startSeconds >= (currentSec - 2.0) && $0.startSeconds <= (targetSec + 1.0)
+                      })
+            {
+                mediaPlayerManager.contentFilterManager.triggerSkip(reason: skippedCue.description ?? skippedCue.category)
+            }
         case .stop:
             mediaPlayerManager.stop()
         case .unpause:

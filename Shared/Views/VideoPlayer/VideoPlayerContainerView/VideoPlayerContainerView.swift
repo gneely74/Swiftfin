@@ -133,25 +133,47 @@ extension VideoPlayer {
                         .isVisible(shouldPresentDimOverlay)
                     }
                     .overlay(alignment: .topTrailing) {
-                        ContentFilterMuteBadgeContainer(contentFilterManager: manager.contentFilterManager)
+                        ContentFilterHUDContainer(contentFilterManager: manager.contentFilterManager)
                             .padding(.top, UIDevice.isTV ? 60 : 40)
                             .padding(.trailing, UIDevice.isTV ? 80 : 24)
+                    }
+                    .overlay {
+                        ContentFilterSubtitleContainer(contentFilterManager: manager.contentFilterManager)
                     }
                     .allowsHitTesting(false)
             }
         }
 
-        private struct ContentFilterMuteBadgeContainer: View {
+        private struct ContentFilterHUDContainer: View {
 
             @ObservedObject
             var contentFilterManager: ContentFilterManager
 
             var body: some View {
-                ContentFilterMuteBadge(
-                    isMuted: contentFilterManager.isMuted,
-                    cueDescription: contentFilterManager.currentActiveCue?.description
-                )
-                .animation(.easeInOut(duration: 0.25), value: contentFilterManager.isMuted)
+                VStack(alignment: .trailing, spacing: 10) {
+                    ContentFilterMuteBadge(
+                        isMuted: contentFilterManager.isMuted,
+                        cueDescription: contentFilterManager.currentActiveCue?.description
+                    )
+                    .animation(.easeInOut(duration: 0.25), value: contentFilterManager.isMuted)
+
+                    ContentFilterSkipBadge(
+                        isSkipping: contentFilterManager.isSkipping,
+                        reason: contentFilterManager.lastSkipReason
+                    )
+                    .animation(.easeInOut(duration: 0.25), value: contentFilterManager.isSkipping)
+                }
+            }
+        }
+
+        private struct ContentFilterSubtitleContainer: View {
+
+            @ObservedObject
+            var contentFilterManager: ContentFilterManager
+
+            var body: some View {
+                ContentFilterSubtitleOverlay(text: contentFilterManager.activeFilteredSubtitleText)
+                    .animation(.easeInOut(duration: 0.2), value: contentFilterManager.activeFilteredSubtitleText)
             }
         }
 

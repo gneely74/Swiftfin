@@ -45,4 +45,39 @@ final class ContentFilterService {
             return nil
         }
     }
+
+    func fetchFilteredSubtitle(for itemID: String, session: UserSession) async -> [ContentFilterSubtitleItem]? {
+        let baseURL = session.server.effectiveServerURL
+
+        let endpointURL: URL = if baseURL.absoluteString.hasSuffix("/") {
+            baseURL.appendingPathComponent("ContentFilter/subtitles/\(itemID).srt")
+        } else {
+            baseURL.appendingPathComponent("/ContentFilter/subtitles/\(itemID).srt")
+        }
+
+        var request = URLRequest(url: endpointURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 8
+
+        let token = session.user.accessToken
+        if !token.isEmpty {
+            request.setValue("MediaBrowser Client=\"Swiftfin\", Token=\"\(token)\"", forHTTPHeaderField: "X-Emby-Authorization")
+            request.setValue(token, forHTTPHeaderField: "X-Emby-Token")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                return nil
+            }
+            guard let srtContent = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
+                return nil
+            }
+            let items = ContentFilterSRTParser.parse(srt: srtContent)
+            return items.isEmpty ? nil : items
+        } catch {
+            return nil
+        }
+    }
 }

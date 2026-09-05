@@ -395,4 +395,28 @@ extension [MediaStream] {
     var hasSubtitles: Bool {
         contains { $0.type == .subtitle }
     }
+
+    var filteredSubtitleStream: MediaStream? {
+        first(where: \.isFilteredSubtitle)
+    }
+}
+
+extension MediaStream {
+
+    var isFilteredSubtitle: Bool {
+        guard type == .subtitle else { return false }
+        if let title = title?.lowercased(), title.contains("filtered") || title.contains("clean") {
+            return true
+        }
+        if let displayTitle = displayTitle?.lowercased(), displayTitle.contains("filtered") || displayTitle.contains("clean") {
+            return true
+        }
+        if let comment = comment?.lowercased(), comment.contains("filtered") || comment.contains("clean") {
+            return true
+        }
+        if let path = path?.lowercased(), path.contains("filtered") {
+            return true
+        }
+        return false
+    }
 }

@@ -236,6 +236,7 @@ final class MediaPlayerManager: ViewModel {
         self.initialMediaPlayerItemProvider = provider
         super.init()
 
+        self.contentFilterManager.manager = self
         self.queue?.manager = self
     }
 
@@ -248,6 +249,7 @@ final class MediaPlayerManager: ViewModel {
         self.state = .playback
         super.init()
 
+        self.contentFilterManager.manager = self
         self.queue?.manager = self
         self.playbackItem = playbackItem
     }

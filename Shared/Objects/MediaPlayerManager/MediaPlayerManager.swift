@@ -195,7 +195,7 @@ final class MediaPlayerManager: ViewModel {
         set {
             secondsBox.value = newValue
             contentFilterManager.updateCurrentTime(newValue)
-            if let proxy {
+            if let proxy, !contentFilterManager.isContentFilterMuted {
                 contentFilterManager.isMuted = proxy.isMuted.value
             }
         }

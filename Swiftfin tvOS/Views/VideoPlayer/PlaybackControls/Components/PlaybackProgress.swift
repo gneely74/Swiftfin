@@ -141,7 +141,9 @@ extension VideoPlayer.PlaybackControls {
                 ),
                 currentProgress: currentProgress,
                 total: 100,
-                isScrollingEnabled: manager.playbackRequestStatus == .paused && manager.state != .loadingItem
+                isScrollingEnabled: manager.playbackRequestStatus == .paused && manager.state != .loadingItem,
+                contentFilterManager: manager.contentFilterManager,
+                runtime: manager.item.runtime ?? .zero
             )
             .onEditingChanged { isEditing in
                 if isEditing {
@@ -156,14 +158,6 @@ extension VideoPlayer.PlaybackControls {
                     view.inverseMask { ChapterTrackMask(chapters: chapters, runtime: manager.item.runtime ?? .zero) }
                 } else {
                     view
-                }
-            }
-            .overlay {
-                if let runtime = manager.item.runtime, runtime > .zero {
-                    ContentFilterTrackOverlayContainer(
-                        contentFilterManager: manager.contentFilterManager,
-                        runtime: runtime
-                    )
                 }
             }
             .frame(height: sliderHeight)

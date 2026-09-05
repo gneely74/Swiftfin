@@ -14,9 +14,17 @@ struct ContentFilterTrackOverlayContainer: View {
     var contentFilterManager: ContentFilterManager
     let runtime: Duration
 
+    private var effectiveRuntime: Duration {
+        if runtime > .zero {
+            return runtime
+        }
+        let maxCue = contentFilterManager.cues.map(\.endSeconds).max() ?? 0
+        return .seconds(maxCue)
+    }
+
     var body: some View {
-        if contentFilterManager.hasCues, runtime > .zero {
-            ContentFilterTrackOverlay(cues: contentFilterManager.cues, runtime: runtime)
+        if contentFilterManager.hasCues, effectiveRuntime > .zero {
+            ContentFilterTrackOverlay(cues: contentFilterManager.cues, runtime: effectiveRuntime)
         }
     }
 }
@@ -30,6 +38,7 @@ struct ContentFilterTrackOverlay: View {
         GeometryReader { proxy in
             let totalWidth = proxy.size.width
             let totalSeconds = runtime.seconds
+            let trackHeight = proxy.size.height > 0 ? proxy.size.height : (UIDevice.isTV ? 14 : 10)
 
             if totalWidth > 0, totalSeconds > 0 {
                 ZStack(alignment: .leading) {
@@ -38,11 +47,11 @@ struct ContentFilterTrackOverlay: View {
                         let startFraction = clamp(cue.startSeconds / totalSeconds, min: 0, max: 1)
                         let endFraction = clamp(cue.endSeconds / totalSeconds, min: 0, max: 1)
                         let xPos = totalWidth * startFraction
-                        let spanWidth = max(UIDevice.isTV ? 4 : 3, totalWidth * (endFraction - startFraction))
+                        let spanWidth = max(UIDevice.isTV ? 5 : 4, totalWidth * (endFraction - startFraction))
 
-                        RoundedRectangle(cornerRadius: 1.5)
+                        RoundedRectangle(cornerRadius: 2)
                             .fill(Color.orange.opacity(0.9))
-                            .frame(width: spanWidth, height: proxy.size.height)
+                            .frame(width: spanWidth, height: trackHeight)
                             .offset(x: xPos)
                     }
 
@@ -50,13 +59,13 @@ struct ContentFilterTrackOverlay: View {
                     ForEach(cues.filter { $0.enabled && $0.isMute }) { cue in
                         let startFraction = clamp(cue.startSeconds / totalSeconds, min: 0, max: 1)
                         let xPos = totalWidth * startFraction
-                        let tickWidth: CGFloat = UIDevice.isTV ? 3.5 : 2.0
+                        let tickWidth: CGFloat = UIDevice.isTV ? 4.0 : 2.5
 
                         Rectangle()
-                            .fill(Color(red: 1.0, green: 0.85, blue: 0.0).opacity(0.95))
-                            .frame(width: tickWidth, height: proxy.size.height)
+                            .fill(Color(red: 1.0, green: 0.85, blue: 0.0))
+                            .frame(width: tickWidth, height: trackHeight)
                             .offset(x: max(0, xPos - (tickWidth / 2)))
-                            .shadow(color: Color.black.opacity(0.4), radius: 1, x: 0, y: 0)
+                            .shadow(color: Color.black.opacity(0.6), radius: 1.5, x: 0, y: 0)
                     }
                 }
                 .clipShape(Capsule())

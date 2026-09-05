@@ -22,7 +22,7 @@ struct ContentFilterMuteBadge: View {
                     .frame(width: UIDevice.isTV ? 20 : 14, height: UIDevice.isTV ? 20 : 14)
                     .foregroundColor(.yellow)
 
-                Text(cueDescription != nil ? "MUTED (\(cueDescription!))" : "MUTED")
+                Text(cueDescription != nil ? "MUTED (\(ContentFilterWordMasker.mask(cueDescription!)))" : "MUTED")
                     .font(UIDevice.isTV ? .caption : .caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)

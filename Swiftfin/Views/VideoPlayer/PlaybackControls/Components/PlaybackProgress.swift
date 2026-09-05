@@ -158,17 +158,15 @@ extension VideoPlayer.PlaybackControls {
                         }
                     }
                 }
-                .overlay {
-                    if let runtime = manager.item.runtime, runtime > .zero {
-                        ContentFilterTrackOverlayContainer(
-                            contentFilterManager: manager.contentFilterManager,
-                            runtime: runtime
-                        )
-                    }
-                }
                 .frame(maxWidth: sliderSize != .zero ? insetSliderWidth : .infinity)
                 .scaleEffect(x: isScrubbing ? xScale : 1, y: 1, anchor: .center)
                 .frame(height: isScrubbing ? 20 : 10)
+                .overlay {
+                    ContentFilterTrackOverlayContainer(
+                        contentFilterManager: manager.contentFilterManager,
+                        runtime: manager.item.runtime ?? .zero
+                    )
+                }
                 .foregroundStyle(manager.state == .loadingItem ? .gray : .primary)
             }
             .animation(.linear(duration: 0.05), value: scrubbedSeconds)

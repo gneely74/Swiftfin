@@ -18,18 +18,24 @@ struct VideoPlayerSlider<Value: BinaryFloatingPoint>: View {
     private let currentProgress: Value?
     private let total: Value
     private let isScrollingEnabled: Bool
+    private let contentFilterManager: ContentFilterManager?
+    private let runtime: Duration
     private var onEditingChanged: (Bool) -> Void
 
     init(
         value: Binding<Value>,
         currentProgress: Value?,
         total: Value,
-        isScrollingEnabled: Bool = true
+        isScrollingEnabled: Bool = true,
+        contentFilterManager: ContentFilterManager? = nil,
+        runtime: Duration = .zero
     ) {
         self._value = value
         self.currentProgress = currentProgress
         self.total = total
         self.isScrollingEnabled = isScrollingEnabled
+        self.contentFilterManager = contentFilterManager
+        self.runtime = runtime
         self.onEditingChanged = { _ in }
     }
 
@@ -41,7 +47,10 @@ struct VideoPlayerSlider<Value: BinaryFloatingPoint>: View {
             originProgress: currentProgress,
             onEditingChanged: onEditingChanged
         ) {
-            VideoPlayerSliderContent()
+            VideoPlayerSliderContent(
+                contentFilterManager: contentFilterManager,
+                runtime: runtime
+            )
         }
     }
 }
@@ -62,6 +71,9 @@ private struct VideoPlayerSliderContent: SliderContentView {
     private var containerState: VideoPlayerContainerState
     @EnvironmentObject
     var sliderState: SliderContainerState<Double>
+
+    let contentFilterManager: ContentFilterManager?
+    let runtime: Duration
 
     private let tickWidth: CGFloat = 3
 
@@ -154,6 +166,14 @@ private struct VideoPlayerSliderContent: SliderContentView {
                 if sliderState.isFocused {
                     progressSegment(progress: committedProgress, in: proxy.size)
                         .foregroundStyle(activeColor)
+                }
+
+                if let contentFilterManager, contentFilterManager.hasCues {
+                    let maxCueSeconds = contentFilterManager.cues.map(\.endSeconds).max() ?? 0
+                    let effectiveRuntime = runtime > .zero ? runtime : .seconds(maxCueSeconds)
+                    if effectiveRuntime > .zero {
+                        ContentFilterTrackOverlay(cues: contentFilterManager.cues, runtime: effectiveRuntime)
+                    }
                 }
 
                 if let visibleTickProgress {

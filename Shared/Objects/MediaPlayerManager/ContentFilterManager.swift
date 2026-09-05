@@ -28,6 +28,9 @@ final class ContentFilterManager: ObservableObject {
     }
 
     @Published
+    var isContentFilterMuted: Bool = false
+
+    @Published
     var currentActiveCue: ContentFilterCue?
 
     // Skip badge state
@@ -101,6 +104,23 @@ final class ContentFilterManager: ObservableObject {
             lastSkippedCueID = currentActiveCue.id
             manager?.proxy?.setSeconds(currentActiveCue.endDuration)
             triggerSkip(reason: currentActiveCue.description ?? currentActiveCue.category)
+        }
+
+        // Check for mute cues during playback
+        let activeMuteCue = cues.first(where: { cue in
+            cue.enabled && cue.isMute && sec >= cue.startSeconds && sec <= cue.endSeconds
+        })
+
+        if activeMuteCue != nil {
+            if !isContentFilterMuted {
+                isContentFilterMuted = true
+                manager?.proxy?.mute(faded: true)
+                self.isMuted = true
+            }
+        } else if isContentFilterMuted {
+            isContentFilterMuted = false
+            manager?.proxy?.unmute(faded: true)
+            self.isMuted = false
         }
 
         // Update active filtered subtitle text during mute
@@ -177,6 +197,10 @@ final class ContentFilterManager: ObservableObject {
     }
 
     func clear() {
+        if isContentFilterMuted {
+            isContentFilterMuted = false
+            manager?.proxy?.unmute(faded: false)
+        }
         skipDismissTask?.cancel()
         skipDismissTask = nil
         disableFilteredSubtitleIfApplicable()

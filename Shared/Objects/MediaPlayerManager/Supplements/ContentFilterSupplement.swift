@@ -97,51 +97,46 @@ extension ContentFilterSupplement {
         @ViewBuilder
         private var cueList: some View {
             ForEach(contentFilterManager.enabledCues) { cue in
-                Button {
-                    manager.proxy?.setSeconds(cue.startDuration)
-                    manager.setPlaybackRequestStatus(status: .playing)
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: cue.isMute ? "speaker.slash.fill" : "forward.fill")
-                            .foregroundColor(cue.isMute ? .yellow : .orange)
-                            .frame(width: 24)
+                HStack(spacing: 12) {
+                    Image(systemName: cue.isMute ? "speaker.slash.fill" : "forward.fill")
+                        .foregroundColor(cue.isMute ? .yellow : .orange)
+                        .frame(width: 24)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack {
-                                Text(cue.description ?? cue.category.capitalized)
-                                    .font(UIDevice.isTV ? .callout : .subheadline)
-                                    .fontWeight(.semibold)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(ContentFilterWordMasker.mask(cue.description ?? cue.category.capitalized))
+                                .font(UIDevice.isTV ? .callout : .subheadline)
+                                .fontWeight(.semibold)
 
-                                Spacer()
+                            Spacer()
 
-                                Text("\(cue.start) - \(cue.end)")
-                                    .font(.caption)
-                                    .monospacedDigit()
-                                    .foregroundColor(.secondary)
-                            }
+                            Text("\(cue.start) - \(cue.end)")
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundColor(.secondary)
+                        }
 
-                            HStack(spacing: 8) {
-                                Text(cue.category.uppercased())
-                                    .font(.system(size: 10, weight: .bold))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.secondary.opacity(0.2), in: Capsule())
+                        HStack(spacing: 8) {
+                            Text(ContentFilterWordMasker.mask(cue.category.uppercased()))
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.secondary.opacity(0.2), in: Capsule())
 
-                                Text(cue.action.uppercased())
-                                    .font(.system(size: 10, weight: .bold))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        (cue.isMute ? Color.yellow : Color.orange).opacity(0.2),
-                                        in: Capsule()
-                                    )
-                                    .foregroundColor(cue.isMute ? .yellow : .orange)
-                            }
+                            Text(cue.action.uppercased())
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    (cue.isMute ? Color.yellow : Color.orange).opacity(0.2),
+                                    in: Capsule()
+                                )
+                                .foregroundColor(cue.isMute ? .yellow : .orange)
                         }
                     }
-                    .padding(.vertical, 6)
                 }
-                .buttonStyle(.plain)
+                .padding(.vertical, 6)
+                .focusable(false)
             }
         }
 

@@ -22,7 +22,7 @@ struct ContentFilterSkipBadge: View {
                     .frame(width: UIDevice.isTV ? 20 : 14, height: UIDevice.isTV ? 20 : 14)
                     .foregroundColor(.orange)
 
-                Text(reason != nil ? "SKIPPED (\(reason!))" : "SCENE SKIPPED")
+                Text(reason != nil ? "SKIPPED (\(ContentFilterWordMasker.mask(reason!)))" : "SCENE SKIPPED")
                     .font(UIDevice.isTV ? .caption : .caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)

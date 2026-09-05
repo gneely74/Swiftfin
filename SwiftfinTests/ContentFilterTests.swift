@@ -353,4 +353,86 @@ final class ContentFilterSocketTests: XCTestCase {
         // Invalid length remains unchanged
         XCTAssertEqual(ContentFilterService.formatGUID("short-id"), "short-id")
     }
+
+    func testContentFilterWordMasker() {
+        // Individual profanity words
+        XCTAssertEqual(ContentFilterWordMasker.mask("fuck"), "f***")
+        XCTAssertEqual(ContentFilterWordMasker.mask("Shit"), "S***")
+        XCTAssertEqual(ContentFilterWordMasker.mask("bitch"), "b****")
+        XCTAssertEqual(ContentFilterWordMasker.mask("bastard"), "b******")
+        XCTAssertEqual(ContentFilterWordMasker.mask("asshole"), "a******")
+
+        // Multi-word phrases
+        XCTAssertEqual(ContentFilterWordMasker.mask("son of a bitch"), "s** o* a b****")
+        XCTAssertEqual(ContentFilterWordMasker.mask("holy shit"), "h*** s***")
+        XCTAssertEqual(ContentFilterWordMasker.mask("god damn"), "g** d***")
+
+        // Mixed sentence with profanity
+        let text = "What the fuck are you doing with this shit?"
+        let masked = ContentFilterWordMasker.mask(text)
+        XCTAssertEqual(masked, "What the f*** are you doing with this s***?")
+
+        // Clean text remains unmodified
+        let clean = "This is a completely wholesome family movie."
+        XCTAssertEqual(ContentFilterWordMasker.mask(clean), clean)
+
+        // Nil and empty strings
+        XCTAssertEqual(ContentFilterWordMasker.mask(nil), "")
+        XCTAssertEqual(ContentFilterWordMasker.mask(""), "")
+    }
+
+    @MainActor
+    func testAutonomousClientSideMuting() {
+        let manager = ContentFilterManager()
+        let muteCue = ContentFilterCue(
+            key: "m1",
+            start: "00:00:10.000",
+            end: "00:00:15.000",
+            description: "Profanity",
+            category: "profanity",
+            channel: "audio",
+            action: "mute",
+            enabled: true
+        )
+        let skipCue = ContentFilterCue(
+            key: "s1",
+            start: "00:00:30.000",
+            end: "00:00:40.000",
+            description: "Violence",
+            category: "violence",
+            channel: "video",
+            action: "skip",
+            enabled: true
+        )
+        manager.cues = [muteCue, skipCue]
+
+        // Before mute cue
+        manager.updateCurrentTime(.seconds(5))
+        XCTAssertFalse(manager.isContentFilterMuted)
+        XCTAssertFalse(manager.isMuted)
+
+        // Inside mute cue (10s - 15s)
+        manager.updateCurrentTime(.seconds(12))
+        XCTAssertTrue(manager.isContentFilterMuted)
+        XCTAssertTrue(manager.isMuted)
+
+        // After mute cue
+        manager.updateCurrentTime(.seconds(16))
+        XCTAssertFalse(manager.isContentFilterMuted)
+        XCTAssertFalse(manager.isMuted)
+
+        // Inside skip cue (30s - 40s) -> should NOT trigger muting
+        manager.updateCurrentTime(.seconds(35))
+        XCTAssertFalse(manager.isContentFilterMuted)
+        XCTAssertFalse(manager.isMuted)
+
+        // Re-enter mute cue, then call clear() -> should unmute
+        manager.updateCurrentTime(.seconds(12))
+        XCTAssertTrue(manager.isContentFilterMuted)
+        XCTAssertTrue(manager.isMuted)
+
+        manager.clear()
+        XCTAssertFalse(manager.isContentFilterMuted)
+        XCTAssertFalse(manager.isMuted)
+    }
 }

@@ -17,7 +17,7 @@ struct ContentFilterSubtitleOverlay: View {
             VStack {
                 Spacer()
 
-                Text(text)
+                Text(ContentFilterWordMasker.mask(text))
                     .font(UIDevice.isTV ? .title3 : .body)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)

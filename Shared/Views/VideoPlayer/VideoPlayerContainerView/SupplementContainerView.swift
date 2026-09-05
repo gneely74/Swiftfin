@@ -87,9 +87,9 @@ extension VideoPlayer.UIVideoPlayerContainerViewController {
             }
             #if os(iOS)
             .background {
-                GestureView()
-                    .environment(\.panGestureDirection, .vertical)
-            }
+                    GestureView()
+                        .environment(\.panGestureDirection, .vertical)
+                }
             #endif
         }
 
@@ -216,6 +216,11 @@ extension VideoPlayer.UIVideoPlayerContainerViewController {
                 .animation(.bouncy(duration: 0.25, extraBounce: 0.1), value: currentSupplements)
             }
             .environment(\.isOverComplexContent, true)
+            .onAppear {
+                currentSupplements = IdentifiedArray(
+                    uniqueElements: manager.supplements.map(AnyMediaPlayerSupplement.init)
+                )
+            }
             .onReceive(manager.$supplements) { newValue in
                 let newSupplements = IdentifiedArray(
                     uniqueElements: newValue.map(AnyMediaPlayerSupplement.init)

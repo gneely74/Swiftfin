@@ -7,77 +7,144 @@
 //
 
 import Foundation
+import Get
+import JellyfinAPI
+import Logging
 
 final class ContentFilterService {
 
     static let shared = ContentFilterService()
+    private let logger = Logger.swiftfin()
 
     private init() {}
 
+    static func formatGUID(_ rawID: String) -> String {
+        let clean = rawID.replacingOccurrences(of: "-", with: "")
+        guard clean.count == 32 else { return rawID }
+        let p1 = clean.prefix(8)
+        let p2 = clean.dropFirst(8).prefix(4)
+        let p3 = clean.dropFirst(12).prefix(4)
+        let p4 = clean.dropFirst(16).prefix(4)
+        let p5 = clean.dropFirst(20)
+        return "\(p1)-\(p2)-\(p3)-\(p4)-\(p5)"
+    }
+
     func fetchFilter(for itemID: String, session: UserSession) async -> ContentFilterResponse? {
-        let baseURL = session.server.effectiveServerURL
+        let guid = Self.formatGUID(itemID)
+        logger.info("ContentFilterService: Fetching filter for itemID=\(itemID), formattedGUID=\(guid)")
 
-        let endpointURL: URL = if baseURL.absoluteString.hasSuffix("/") {
-            baseURL.appendingPathComponent("ContentFilter/filters/\(itemID)")
-        } else {
-            baseURL.appendingPathComponent("/ContentFilter/filters/\(itemID)")
-        }
+        let paths = [
+            "ContentFilter/filters/\(guid)",
+            "ContentFilter/filters/\(itemID)",
+        ]
 
-        var request = URLRequest(url: endpointURL)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 8
-
-        let token = session.user.accessToken
-        if !token.isEmpty {
-            request.setValue("MediaBrowser Client=\"Swiftfin\", Token=\"\(token)\"", forHTTPHeaderField: "X-Emby-Authorization")
-            request.setValue(token, forHTTPHeaderField: "X-Emby-Token")
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                return nil
+        for path in paths {
+            // Primary: via session.client (preserves proxy delegate, custom SSL certs & auth headers)
+            do {
+                let request = Request<Data>(path: path, method: "GET")
+                let response = try await session.client.data(for: request)
+                if response.statusCode == 200 {
+                    let decoder = JSONDecoder()
+                    let filter = try decoder.decode(ContentFilterResponse.self, from: response.value)
+                    logger.info("ContentFilterService: Successfully loaded \(filter.cues.count) cues from \(path)")
+                    return filter
+                }
+            } catch {
+                logger.warning("ContentFilterService: Client request to \(path) failed: \(error.localizedDescription)")
             }
-            let decoder = JSONDecoder()
-            return try decoder.decode(ContentFilterResponse.self, from: data)
-        } catch {
-            return nil
+
+            // Fallback: via explicit URLRequest against effectiveServerURL
+            let baseURL = session.server.effectiveServerURL
+            let relativePath = path.hasPrefix("/") ? String(path.dropFirst()) : path
+            let endpointURL = baseURL.appendingPathComponent(relativePath)
+
+            var request = URLRequest(url: endpointURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 8
+
+            let token = session.user.accessToken
+            if !token.isEmpty {
+                request.setValue("MediaBrowser Client=\"Swiftfin\", Token=\"\(token)\"", forHTTPHeaderField: "X-Emby-Authorization")
+                request.setValue(token, forHTTPHeaderField: "X-Emby-Token")
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+
+            do {
+                let (data, urlResponse) = try await URLSession.shared.data(for: request)
+                if let httpResponse = urlResponse as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                    let decoder = JSONDecoder()
+                    let filter = try decoder.decode(ContentFilterResponse.self, from: data)
+                    logger
+                        .info(
+                            "ContentFilterService: Successfully loaded \(filter.cues.count) cues via URLSession fallback from \(endpointURL.absoluteString)"
+                        )
+                    return filter
+                }
+            } catch {
+                logger
+                    .error("ContentFilterService: Fallback request to \(endpointURL.absoluteString) failed: \(error.localizedDescription)")
+            }
         }
+
+        logger.warning("ContentFilterService: No content filter found or failed to decode for itemID=\(itemID)")
+        return nil
     }
 
     func fetchFilteredSubtitle(for itemID: String, session: UserSession) async -> [ContentFilterSubtitleItem]? {
-        let baseURL = session.server.effectiveServerURL
+        let guid = Self.formatGUID(itemID)
+        let paths = [
+            "ContentFilter/subtitles/\(guid).srt",
+            "ContentFilter/subtitles/\(itemID).srt",
+        ]
 
-        let endpointURL: URL = if baseURL.absoluteString.hasSuffix("/") {
-            baseURL.appendingPathComponent("ContentFilter/subtitles/\(itemID).srt")
-        } else {
-            baseURL.appendingPathComponent("/ContentFilter/subtitles/\(itemID).srt")
-        }
-
-        var request = URLRequest(url: endpointURL)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 8
-
-        let token = session.user.accessToken
-        if !token.isEmpty {
-            request.setValue("MediaBrowser Client=\"Swiftfin\", Token=\"\(token)\"", forHTTPHeaderField: "X-Emby-Authorization")
-            request.setValue(token, forHTTPHeaderField: "X-Emby-Token")
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                return nil
+        for path in paths {
+            do {
+                let request = Request<Data>(path: path, method: "GET")
+                let response = try await session.client.data(for: request)
+                if response.statusCode == 200,
+                   let srtContent = String(data: response.value, encoding: .utf8) ?? String(data: response.value, encoding: .isoLatin1)
+                {
+                    let items = ContentFilterSRTParser.parse(srt: srtContent)
+                    if !items.isEmpty {
+                        logger.info("ContentFilterService: Loaded \(items.count) filtered subtitle items from \(path)")
+                        return items
+                    }
+                }
+            } catch {
+                logger.warning("ContentFilterService: Subtitle client request to \(path) failed: \(error.localizedDescription)")
             }
-            guard let srtContent = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
-                return nil
+
+            let baseURL = session.server.effectiveServerURL
+            let relativePath = path.hasPrefix("/") ? String(path.dropFirst()) : path
+            let endpointURL = baseURL.appendingPathComponent(relativePath)
+
+            var request = URLRequest(url: endpointURL)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 8
+
+            let token = session.user.accessToken
+            if !token.isEmpty {
+                request.setValue("MediaBrowser Client=\"Swiftfin\", Token=\"\(token)\"", forHTTPHeaderField: "X-Emby-Authorization")
+                request.setValue(token, forHTTPHeaderField: "X-Emby-Token")
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
-            let items = ContentFilterSRTParser.parse(srt: srtContent)
-            return items.isEmpty ? nil : items
-        } catch {
-            return nil
+
+            do {
+                let (data, urlResponse) = try await URLSession.shared.data(for: request)
+                if let httpResponse = urlResponse as? HTTPURLResponse, httpResponse.statusCode == 200,
+                   let srtContent = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
+                {
+                    let items = ContentFilterSRTParser.parse(srt: srtContent)
+                    if !items.isEmpty {
+                        logger.info("ContentFilterService: Loaded \(items.count) filtered subtitle items via URLSession fallback")
+                        return items
+                    }
+                }
+            } catch {
+                logger.error("ContentFilterService: Fallback subtitle fetch failed: \(error.localizedDescription)")
+            }
         }
+
+        return nil
     }
 }

@@ -159,8 +159,11 @@ extension VideoPlayer.PlaybackControls {
                     }
                 }
                 .overlay {
-                    if manager.contentFilterManager.hasCues, let runtime = manager.item.runtime, runtime > .zero {
-                        ContentFilterTrackOverlay(cues: manager.contentFilterManager.cues, runtime: runtime)
+                    if let runtime = manager.item.runtime, runtime > .zero {
+                        ContentFilterTrackOverlayContainer(
+                            contentFilterManager: manager.contentFilterManager,
+                            runtime: runtime
+                        )
                     }
                 }
                 .frame(maxWidth: sliderSize != .zero ? insetSliderWidth : .infinity)

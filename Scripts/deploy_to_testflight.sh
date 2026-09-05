@@ -7,6 +7,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+
 PLATFORM="${1:-tvos}"
 API_KEY_ID="9MHL5YVWZ5"
 API_ISSUER_ID="0126c02e-aa3e-4063-9a32-9ab86c316c8b"

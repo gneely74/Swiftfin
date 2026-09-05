@@ -273,4 +273,84 @@ final class ContentFilterSocketTests: XCTestCase {
         manager.isMuted = false
         XCTAssertNil(manager.activeFilteredSubtitleText)
     }
+
+    func testResilientFilterResponseDecodingStringYear() throws {
+        let json = """
+        {
+            "title": "A Knight of the Seven Kingdoms",
+            "year": "2025",
+            "imdbUrl": "https://www.imdb.com/title/tt27491682/",
+            "cues": [
+                {
+                    "key": "00:01:10.000-00:01:15.000-Profanity",
+                    "start": "00:01:10.000",
+                    "end": "00:01:15.000",
+                    "description": "strong language",
+                    "category": "Profanity",
+                    "channel": "audio",
+                    "action": "mute",
+                    "enabled": true
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(ContentFilterResponse.self, from: json)
+        XCTAssertEqual(response.title, "A Knight of the Seven Kingdoms")
+        XCTAssertEqual(response.year, "2025")
+        XCTAssertEqual(response.cues.count, 1)
+        XCTAssertEqual(response.cues.first?.category, "Profanity")
+        XCTAssertTrue(response.cues.first?.isMute == true)
+    }
+
+    func testResilientFilterResponseDecodingPascalCaseAndIntYear() throws {
+        let json = """
+        {
+            "Title": "Game of Thrones",
+            "Year": 2011,
+            "Cues": [
+                {
+                    "Start": "00:05:00.000",
+                    "End": "00:05:10.000",
+                    "Category": "Violence",
+                    "Action": "skip"
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(ContentFilterResponse.self, from: json)
+        XCTAssertEqual(response.title, "Game of Thrones")
+        XCTAssertEqual(response.year, "2011")
+        XCTAssertEqual(response.cues.count, 1)
+        XCTAssertEqual(response.cues.first?.category, "Violence")
+        XCTAssertTrue(response.cues.first?.isSkip == true)
+        XCTAssertTrue(response.cues.first?.enabled == true)
+    }
+
+    func testResilientFilterResponseDecodingEmptyYearAndMissingCues() throws {
+        let json = """
+        {
+            "title": "Minimal Movie",
+            "year": ""
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(ContentFilterResponse.self, from: json)
+        XCTAssertEqual(response.title, "Minimal Movie")
+        XCTAssertEqual(response.year, "")
+        XCTAssertTrue(response.cues.isEmpty)
+    }
+
+    func testGUIDFormatting() {
+        let raw = "2b69424c5bb947c6a0c0adad5feefba7"
+        let expected = "2b69424c-5bb9-47c6-a0c0-adad5feefba7"
+        XCTAssertEqual(ContentFilterService.formatGUID(raw), expected)
+
+        // Already formatted GUID should remain unchanged
+        XCTAssertEqual(ContentFilterService.formatGUID(expected), expected)
+
+        // Invalid length remains unchanged
+        XCTAssertEqual(ContentFilterService.formatGUID("short-id"), "short-id")
+    }
 }

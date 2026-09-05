@@ -21,6 +21,14 @@
   <b>Swiftfin</b> is a modern video client for the <a href="https://github.com/jellyfin/jellyfin">Jellyfin</a> media server. Made using Swift to maximize direct play with the power of <b>VLC</b> and look <b>native</b> on all classes of Apple devices.
 </p>
 
+> [!IMPORTANT]
+> ### 🛡️ Jellyfin ContentFilter Enhanced Build
+> This build of **Swiftfin** is specially engineered to work with the [Jellyfin ContentFilter Plugin](https://github.com/gneely74/jellyfin-plugin-contentfilter):
+> - **Stream-Level Dialogue Muting**: Silences profanity and flagged dialogue cues seamlessly at the player stream level (`AVPlayer.isMuted` / `VLCMediaPlayer.audio.isMuted`) with smooth audio fade ramping—leaving hardware TV master volume untouched and video playback uninterrupted.
+> - **Automatic Scene Skipping**: Skips past graphic violence, gore, or nudity scenes with precision seek transitions, supporting both pre-fetched client cues and real-time server WebSocket commands.
+> - **Player HUD & Indicators**: Features transient frosted-glass popup badges in the top-right corner for active mutes (`MUTED`) and scene skips (`SKIPPED (<Reason>)`), color-coded scrubber timeline markers, and an interactive **Content Filter** tab in the player supplement drawer.
+> - **Filtered Subtitles During Mute**: When audio is muted, if no subtitle is selected, Swiftfin automatically presents filtered subtitles for the dialogue. If the viewer has already selected a preferred subtitle track, that selection is strictly respected and preserved.
+
 ## ⚡️ Download
 
 <a href="https://apps.apple.com/us/app/swiftfin/id1604098728">

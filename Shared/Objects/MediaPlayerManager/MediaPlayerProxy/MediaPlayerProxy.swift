@@ -33,8 +33,26 @@ protocol MediaPlayerProxy: ObservableObject, MediaPlayerObserver {
     // MARK: - Audio Stream Muting
 
     func mute()
+    func mute(faded: Bool)
     func unmute()
+    func unmute(faded: Bool)
     func toggleMute()
+    func toggleMute(faded: Bool)
+}
+
+extension MediaPlayerProxy {
+
+    func mute() {
+        mute(faded: true)
+    }
+
+    func unmute() {
+        unmute(faded: true)
+    }
+
+    func toggleMute() {
+        toggleMute(faded: true)
+    }
 }
 
 @MainActor

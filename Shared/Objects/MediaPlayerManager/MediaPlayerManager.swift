@@ -108,6 +108,17 @@ final class MediaPlayerManager: ViewModel {
                 playbackItem.manager = self
                 setSupplements()
 
+                if let itemID = playbackItem.baseItem.id {
+                    let session = Container.shared.currentUserSession()
+                    Task { [weak self] in
+                        guard let self else { return }
+                        await self.contentFilterManager.loadFilter(for: itemID, session: session)
+                        self.setSupplements()
+                    }
+                } else {
+                    contentFilterManager.clear()
+                }
+
                 logger.info(
                     "Playing new item",
                     metadata: [
@@ -140,6 +151,8 @@ final class MediaPlayerManager: ViewModel {
     @Published
     var supplements: [any MediaPlayerSupplement] = []
 
+    let contentFilterManager: ContentFilterManager = .init()
+
     // TODO: replace with graph dependency package
     private func setSupplements() {
         var newSupplements = Defaults[.VideoPlayer.supplements].compactMap { kind -> (any MediaPlayerSupplement)? in
@@ -157,11 +170,18 @@ final class MediaPlayerManager: ViewModel {
             case .playbackInformation:
                 guard let itemID = item.id else { return nil }
                 return PlaybackInformationSupplement(itemID: itemID)
+            case .contentFilter:
+                guard contentFilterManager.hasCues else { return nil }
+                return ContentFilterSupplement(contentFilterManager: contentFilterManager)
             }
         }
 
         if item.isLiveStream, Defaults[.Experimental.videoPlayerEPG] {
             newSupplements.append(EPGSupplement())
+        }
+
+        if contentFilterManager.hasCues, !newSupplements.contains(where: { $0 is ContentFilterSupplement }) {
+            newSupplements.append(ContentFilterSupplement(contentFilterManager: contentFilterManager))
         }
 
         self.supplements = newSupplements
@@ -172,7 +192,13 @@ final class MediaPlayerManager: ViewModel {
 
     var seconds: Duration {
         get { secondsBox.value }
-        set { secondsBox.value = newValue }
+        set {
+            secondsBox.value = newValue
+            contentFilterManager.updateCurrentTime(newValue)
+            if let proxy {
+                contentFilterManager.isMuted = proxy.isMuted.value
+            }
+        }
     }
 
     var playbackBitrate: PlaybackBitrate {
@@ -376,6 +402,7 @@ final class MediaPlayerManager: ViewModel {
     private func _stop() async throws {
         await self.cancel()
 
+        contentFilterManager.clear()
         proxy?.stop()
         Container.shared.mediaPlayerManagerPublisher().send(nil)
         Container.shared.mediaPlayerManager.reset()

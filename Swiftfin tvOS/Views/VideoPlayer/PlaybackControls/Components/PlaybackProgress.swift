@@ -158,6 +158,11 @@ extension VideoPlayer.PlaybackControls {
                     view
                 }
             }
+            .overlay {
+                if manager.contentFilterManager.hasCues, let runtime = manager.item.runtime, runtime > .zero {
+                    ContentFilterTrackOverlay(cues: manager.contentFilterManager.cues, runtime: runtime)
+                }
+            }
             .frame(height: sliderHeight)
             .trackingSize($sliderSize)
             .foregroundStyle(manager.state == .loadingItem ? .gray : .primary)

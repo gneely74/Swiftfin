@@ -123,19 +123,83 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
 
     // MARK: - ContentFilter Audio Stream Muting
 
+    private var fadeTask: Task<Void, Never>?
+
     func mute() {
-        player.isMuted = true
+        mute(faded: true)
+    }
+
+    func mute(faded: Bool) {
+        fadeTask?.cancel()
         isMuted.value = true
+        manager?.contentFilterManager.isMuted = true
+
+        guard faded else {
+            player.isMuted = true
+            return
+        }
+
+        let initialVolume = player.volume > 0 ? player.volume : 1.0
+        fadeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let steps = 8
+            let stepDelay: UInt64 = 18_000_000 // 18ms * 8 = ~144ms smooth ramp
+            for step in 1 ... steps {
+                if Task.isCancelled {
+                    return
+                }
+                try? await Task.sleep(nanoseconds: stepDelay)
+                let factor = Float(steps - step) / Float(steps)
+                self.player.volume = initialVolume * factor
+            }
+            self.player.isMuted = true
+            self.player.volume = initialVolume
+        }
     }
 
     func unmute() {
-        player.isMuted = false
+        unmute(faded: true)
+    }
+
+    func unmute(faded: Bool) {
+        fadeTask?.cancel()
         isMuted.value = false
+        manager?.contentFilterManager.isMuted = false
+
+        guard faded else {
+            player.isMuted = false
+            player.volume = 1.0
+            return
+        }
+
+        player.volume = 0.0
+        player.isMuted = false
+        fadeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let steps = 8
+            let stepDelay: UInt64 = 20_000_000 // 20ms * 8 = ~160ms smooth ramp
+            for step in 1 ... steps {
+                if Task.isCancelled {
+                    return
+                }
+                try? await Task.sleep(nanoseconds: stepDelay)
+                let factor = Float(step) / Float(steps)
+                self.player.volume = factor
+            }
+            self.player.volume = 1.0
+        }
     }
 
     func toggleMute() {
-        player.isMuted.toggle()
-        isMuted.value = player.isMuted
+        toggleMute(faded: true)
+    }
+
+    func toggleMute(faded: Bool) {
+        if isMuted.value {
+            unmute(faded: faded)
+        } else {
+            mute(faded: faded)
+        }
     }
 
     // TODO: complete
@@ -183,6 +247,9 @@ extension AVMediaPlayerProxy {
         newAVPlayerItem.externalMetadata = item.baseItem.avMetadata
 
         player.replaceCurrentItem(with: newAVPlayerItem)
+        fadeTask?.cancel()
+        fadeTask = nil
+        player.volume = 1.0
         player.isMuted = false
         isMuted.value = false
 

@@ -6,6 +6,7 @@
 // Copyright (c) 2026 Jellyfin & Jellyfin Contributors
 //
 
+import Combine
 import Defaults
 import Foundation
 import JellyfinAPI
@@ -34,10 +35,28 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         Mirror(reflecting: vlcUIProxy).children.first(where: { $0.label == "mediaPlayer" })?.value as? VLCMediaPlayer
     }
 
+    private var managerItemObserver: AnyCancellable?
+
     weak var manager: MediaPlayerManager? {
         didSet {
             for var o in observers {
                 o.manager = manager
+            }
+
+            if let manager {
+                managerItemObserver = manager.$playbackItem
+                    .sink { [weak self] item in
+                        guard let self, item != nil else { return }
+                        self.fadeTask?.cancel()
+                        self.fadeTask = nil
+                        self.isMuted.value = false
+                        if let audio = self.vlcPlayer?.audio {
+                            audio.isMuted = false
+                            audio.volume = 100
+                        }
+                    }
+            } else {
+                managerItemObserver?.cancel()
             }
         }
     }
@@ -87,25 +106,82 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
     // MARK: - ContentFilter Audio Stream Muting
 
+    private var fadeTask: Task<Void, Never>?
+
     func mute() {
-        if let audio = vlcPlayer?.audio {
-            audio.isMuted = true
-        }
+        mute(faded: true)
+    }
+
+    func mute(faded: Bool) {
+        fadeTask?.cancel()
         isMuted.value = true
+        manager?.contentFilterManager.isMuted = true
+
+        guard faded, let audio = vlcPlayer?.audio else {
+            vlcPlayer?.audio?.isMuted = true
+            return
+        }
+
+        let initialVolume = audio.volume > 0 ? audio.volume : 100
+        fadeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let steps = 8
+            let stepDelay: UInt64 = 18_000_000 // ~144ms ramp
+            for step in 1 ... steps {
+                if Task.isCancelled {
+                    return
+                }
+                try? await Task.sleep(nanoseconds: stepDelay)
+                let factor = Float(steps - step) / Float(steps)
+                self.vlcPlayer?.audio?.volume = Int32(Float(initialVolume) * factor)
+            }
+            self.vlcPlayer?.audio?.isMuted = true
+            self.vlcPlayer?.audio?.volume = initialVolume
+        }
     }
 
     func unmute() {
-        if let audio = vlcPlayer?.audio {
-            audio.isMuted = false
-        }
+        unmute(faded: true)
+    }
+
+    func unmute(faded: Bool) {
+        fadeTask?.cancel()
         isMuted.value = false
+        manager?.contentFilterManager.isMuted = false
+
+        guard faded, let audio = vlcPlayer?.audio else {
+            vlcPlayer?.audio?.isMuted = false
+            vlcPlayer?.audio?.volume = 100
+            return
+        }
+
+        audio.volume = 0
+        audio.isMuted = false
+        fadeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let steps = 8
+            let stepDelay: UInt64 = 20_000_000 // ~160ms ramp
+            for step in 1 ... steps {
+                if Task.isCancelled {
+                    return
+                }
+                try? await Task.sleep(nanoseconds: stepDelay)
+                let factor = Float(step) / Float(steps)
+                self.vlcPlayer?.audio?.volume = Int32(100 * factor)
+            }
+            self.vlcPlayer?.audio?.volume = 100
+        }
     }
 
     func toggleMute() {
+        toggleMute(faded: true)
+    }
+
+    func toggleMute(faded: Bool) {
         if isMuted.value {
-            unmute()
+            unmute(faded: faded)
         } else {
-            mute()
+            mute(faded: faded)
         }
     }
 

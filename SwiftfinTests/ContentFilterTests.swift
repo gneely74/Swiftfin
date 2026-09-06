@@ -152,6 +152,27 @@ final class ContentFilterSocketTests: XCTestCase {
 
         manager.updateCurrentTime(.seconds(65)) // 00:01:05 -> inside cue 1
         XCTAssertEqual(manager.currentActiveCue?.key, "1")
+        XCTAssertTrue(manager.isContentFilterMuted)
+
+        // Pre-roll lead time test: 59.8s is 200ms before cue start (60.0s) -> within 250ms lead window
+        manager.updateCurrentTime(.seconds(59.8))
+        XCTAssertEqual(manager.currentActiveCue?.key, "1")
+        XCTAssertTrue(manager.isContentFilterMuted)
+
+        // Outside pre-roll: 59.7s is 300ms before cue start -> outside 250ms lead window
+        manager.updateCurrentTime(.seconds(59.7))
+        XCTAssertNil(manager.currentActiveCue)
+        XCTAssertFalse(manager.isContentFilterMuted)
+
+        // Post-roll tail padding test: 70.15s is 150ms after cue end (70.0s) -> within 200ms tail window
+        manager.updateCurrentTime(.seconds(70.15))
+        XCTAssertEqual(manager.currentActiveCue?.key, "1")
+        XCTAssertTrue(manager.isContentFilterMuted)
+
+        // Outside post-roll: 70.25s is 250ms after cue end -> outside 200ms tail window
+        manager.updateCurrentTime(.seconds(70.25))
+        XCTAssertNil(manager.currentActiveCue)
+        XCTAssertFalse(manager.isContentFilterMuted)
 
         manager.updateCurrentTime(.seconds(90)) // outside any cue
         XCTAssertNil(manager.currentActiveCue)

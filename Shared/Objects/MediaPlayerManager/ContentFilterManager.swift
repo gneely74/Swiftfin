@@ -92,10 +92,19 @@ final class ContentFilterManager: ObservableObject {
         self.filteredSubtitles = subs ?? []
     }
 
+    // Lead time before mute cue starts to prevent initial phoneme leakage (~250ms)
+    static let muteLeadSeconds: Double = 0.25
+    // Tail padding after mute cue ends to prevent trailing consonant clicks (~200ms)
+    static let muteTailSeconds: Double = 0.20
+
     func updateCurrentTime(_ seconds: Duration) {
         let sec = seconds.seconds
         currentActiveCue = cues.first(where: { cue in
-            cue.enabled && sec >= cue.startSeconds && sec <= cue.endSeconds
+            if cue.isMute {
+                return cue.enabled && sec >= max(0, cue.startSeconds - Self.muteLeadSeconds) && sec <= (cue.endSeconds + Self.muteTailSeconds)
+            } else {
+                return cue.enabled && sec >= cue.startSeconds && sec <= cue.endSeconds
+            }
         })
 
         // Check for skip cues during playback
@@ -105,9 +114,11 @@ final class ContentFilterManager: ObservableObject {
             triggerSkip(reason: currentActiveCue.description ?? currentActiveCue.category)
         }
 
-        // Check for mute cues during playback
+        // Check for mute cues during playback with pre-roll lead and post-roll tail padding
         let activeMuteCue = cues.first(where: { cue in
-            cue.enabled && cue.isMute && sec >= cue.startSeconds && sec <= cue.endSeconds
+            cue.enabled && cue.isMute &&
+            sec >= max(0, cue.startSeconds - Self.muteLeadSeconds) &&
+            sec <= (cue.endSeconds + Self.muteTailSeconds)
         })
 
         if activeMuteCue != nil {
@@ -125,7 +136,7 @@ final class ContentFilterManager: ObservableObject {
         // Update active filtered subtitle text during mute
         if isMuted && isTemporarilyDisplayingFilteredSubtitle {
             let matchingSubtitle = filteredSubtitles.first(where: {
-                sec >= $0.startSeconds && sec <= $0.endSeconds
+                sec >= max(0, $0.startSeconds - Self.muteLeadSeconds) && sec <= ($0.endSeconds + Self.muteTailSeconds)
             })
             activeFilteredSubtitleText = matchingSubtitle?.text
         }
@@ -170,7 +181,7 @@ final class ContentFilterManager: ObservableObject {
         isTemporarilyDisplayingFilteredSubtitle = true
         let seconds = manager?.seconds.seconds ?? 0
         let match = filteredSubtitles.first(where: {
-            seconds >= $0.startSeconds && seconds <= $0.endSeconds
+            seconds >= max(0, $0.startSeconds - Self.muteLeadSeconds) && seconds <= ($0.endSeconds + Self.muteTailSeconds)
         })
         activeFilteredSubtitleText = match?.text
     }

@@ -47,7 +47,6 @@ final class ContentFilterManager: ObservableObject {
 
     private var lastSkippedCueID: String?
     private var skipDismissTask: Task<Void, Never>?
-    private var originalSubtitleStreamIndex: Int?
     private var isTemporarilyDisplayingFilteredSubtitle: Bool = false
 
     var hasCues: Bool {
@@ -163,34 +162,21 @@ final class ContentFilterManager: ObservableObject {
             let currentSubIndex = playbackItem.selectedSubtitleStreamIndex
             let hasSelectedSubtitle = (currentSubIndex != nil && currentSubIndex != -1)
             guard !hasSelectedSubtitle else { return }
-
-            // Check if item has a filtered subtitle track
-            if let filteredStream = playbackItem.subtitleStreams.filteredSubtitleStream {
-                originalSubtitleStreamIndex = currentSubIndex
-                isTemporarilyDisplayingFilteredSubtitle = true
-                playbackItem.selectedSubtitleStreamIndex = filteredStream.index
-                return
-            }
         }
 
-        if !filteredSubtitles.isEmpty {
-            // Display overlay subtitle if available from API
-            isTemporarilyDisplayingFilteredSubtitle = true
-            let seconds = manager?.seconds.seconds ?? 0
-            let match = filteredSubtitles.first(where: {
-                seconds >= $0.startSeconds && seconds <= $0.endSeconds
-            })
-            activeFilteredSubtitleText = match?.text
-        }
+        guard !filteredSubtitles.isEmpty else { return }
+
+        // Display overlay subtitle if available from API
+        isTemporarilyDisplayingFilteredSubtitle = true
+        let seconds = manager?.seconds.seconds ?? 0
+        let match = filteredSubtitles.first(where: {
+            seconds >= $0.startSeconds && seconds <= $0.endSeconds
+        })
+        activeFilteredSubtitleText = match?.text
     }
 
     private func disableFilteredSubtitleIfApplicable() {
         guard isTemporarilyDisplayingFilteredSubtitle else { return }
-
-        if let original = originalSubtitleStreamIndex {
-            manager?.playbackItem?.selectedSubtitleStreamIndex = original
-            originalSubtitleStreamIndex = nil
-        }
 
         isTemporarilyDisplayingFilteredSubtitle = false
         activeFilteredSubtitleText = nil

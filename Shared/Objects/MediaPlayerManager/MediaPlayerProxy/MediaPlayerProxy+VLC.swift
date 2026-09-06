@@ -118,7 +118,9 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         manager?.contentFilterManager.isMuted = true
         vlcPlayer?.audio?.isMuted = true
 
-        #if !os(tvOS)
+        #if os(tvOS)
+        vlcPlayer?.audio?.volume = 0
+        #else
         guard faded, let audio = vlcPlayer?.audio else { return }
 
         let initialVolume = audio.volume > 0 ? audio.volume : 100
@@ -148,6 +150,10 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         isMuted.value = false
         manager?.contentFilterManager.isMuted = false
 
+        #if os(tvOS)
+        vlcPlayer?.audio?.isMuted = false
+        vlcPlayer?.audio?.volume = 100
+        #else
         guard faded, let audio = vlcPlayer?.audio else {
             vlcPlayer?.audio?.isMuted = false
             vlcPlayer?.audio?.volume = 100
@@ -170,6 +176,7 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
             }
             self.vlcPlayer?.audio?.volume = 100
         }
+        #endif
     }
 
     func toggleMute() {

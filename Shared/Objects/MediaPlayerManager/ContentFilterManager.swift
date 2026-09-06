@@ -92,10 +92,10 @@ final class ContentFilterManager: ObservableObject {
         self.filteredSubtitles = subs ?? []
     }
 
-    // Lead time before mute cue starts to prevent initial phoneme leakage (~250ms)
-    static let muteLeadSeconds: Double = 0.25
-    // Tail padding after mute cue ends to prevent trailing consonant clicks (~200ms)
-    static let muteTailSeconds: Double = 0.20
+    // Lead time before mute cue starts to prevent initial phoneme leakage (~400ms)
+    static let muteLeadSeconds: Double = 0.40
+    // Tail padding after mute cue ends to prevent trailing consonant clicks (~300ms)
+    static let muteTailSeconds: Double = 0.30
 
     func updateCurrentTime(_ seconds: Duration) {
         let sec = seconds.seconds

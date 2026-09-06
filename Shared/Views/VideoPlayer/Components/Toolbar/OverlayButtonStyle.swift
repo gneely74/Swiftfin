@@ -12,6 +12,8 @@ extension VideoPlayer.PlaybackControls {
 
     struct OverlayButtonStyleModifier: ViewModifier {
 
+        var isMenu: Bool = false
+
         func body(content: Content) -> some View {
             if #available(iOS 26.0, *), UIDevice.supportsLiquidGlass {
                 content
@@ -19,7 +21,7 @@ extension VideoPlayer.PlaybackControls {
                     .buttonBorderShape(.circle)
             } else {
                 content
-                    .buttonStyle(OverlayButtonStyle())
+                    .buttonStyle(OverlayButtonStyle(isMenu: isMenu))
             }
         }
     }
@@ -30,7 +32,7 @@ extension VideoPlayer.PlaybackControls {
             Menu(configuration)
                 .menuStyle(.button)
                 #if os(tvOS)
-                .modifier(OverlayButtonStyleModifier())
+                .modifier(OverlayButtonStyleModifier(isMenu: true))
                 #else
                 .buttonStyle(OverlayButtonStyle(isMenu: true))
                 #endif

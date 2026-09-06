@@ -31,16 +31,19 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
 
         @ViewBuilder
         private func content(playbackItem: MediaPlayerItem) -> some View {
-            Picker(selection: $selectedAudioStreamIndex) {
-                ForEach(playbackItem.audioStreams, id: \.index) { stream in
-                    Text(stream.displayTitle ?? L10n.unknown)
-                        .tag(stream.index as Int?)
-                }
-            } label: {
-                Text(L10n.audio)
+            ForEach(playbackItem.audioStreams, id: \.index) { stream in
+                let streamIndex = stream.index
+                let isSelected = (selectedAudioStreamIndex ?? playbackItem.selectedAudioStreamIndex) == streamIndex
 
-                if let selectedAudioStream = playbackItem.audioStreams.first(where: { $0.index == selectedAudioStreamIndex }) {
-                    Text(selectedAudioStream.displayTitle ?? L10n.unknown)
+                Button {
+                    selectedAudioStreamIndex = streamIndex
+                    playbackItem.selectedAudioStreamIndex = streamIndex
+                } label: {
+                    if isSelected {
+                        Label(stream.displayTitle ?? L10n.unknown, systemImage: "checkmark")
+                    } else {
+                        Text(stream.displayTitle ?? L10n.unknown)
+                    }
                 }
             }
         }
@@ -59,10 +62,10 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
                     Label(L10n.audio, systemImage: systemImage)
                 }
                 .videoPlayerActionButtonTransition()
-                .assign(playbackItem.$selectedAudioStreamIndex, to: $selectedAudioStreamIndex)
-                .onChange(of: selectedAudioStreamIndex) {
-                    playbackItem.selectedAudioStreamIndex = selectedAudioStreamIndex
+                .onAppear {
+                    selectedAudioStreamIndex = playbackItem.selectedAudioStreamIndex
                 }
+                .assign(playbackItem.$selectedAudioStreamIndex, to: $selectedAudioStreamIndex)
             }
         }
     }

@@ -25,17 +25,34 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
 
         var body: some View {
             Menu {
-                Picker(L10n.playbackSpeed, selection: $manager.rate) {
+                Section(L10n.playbackSpeed) {
                     ForEach(rates, id: \.self) { rate in
-                        Text(rate, format: .playbackRate)
-                            .tag(rate)
+                        let isSelected = abs(manager.rate - rate) < 0.01
+                        Button {
+                            manager.rate = rate
+                        } label: {
+                            if isSelected {
+                                Label {
+                                    Text(rate, format: .playbackRate)
+                                } icon: {
+                                    Image(systemName: "checkmark")
+                                }
+                            } else {
+                                Text(rate, format: .playbackRate)
+                            }
+                        }
                     }
 
-                    if !rates.contains(manager.rate) {
+                    if !rates.contains(where: { abs($0 - manager.rate) < 0.01 }) {
                         Divider()
 
-                        Text(manager.rate, format: .playbackRate)
-                            .tag(manager.rate)
+                        Button {} label: {
+                            Label {
+                                Text(manager.rate, format: .playbackRate)
+                            } icon: {
+                                Image(systemName: "checkmark")
+                            }
+                        }
                     }
                 }
             } label: {

@@ -23,6 +23,7 @@ final class ContentFilterManager: ObservableObject {
             recalculateBridgedMuteIntervals()
         }
     }
+
     @Published
     var isMuted: Bool = false {
         didSet {
@@ -143,12 +144,13 @@ final class ContentFilterManager: ObservableObject {
 
         currentActiveCue = cues.first(where: { cue in
             if cue.isMute {
-                return cue.enabled && sec >= max(0, cue.startSeconds - Self.muteLeadSeconds) && sec <= (cue.endSeconds + Self.muteTailSeconds)
+                cue.enabled && sec >= max(0, cue.startSeconds - Self.muteLeadSeconds) && sec <= (cue.endSeconds + Self.muteTailSeconds)
             } else {
-                return cue.enabled && sec >= cue.startSeconds && sec <= cue.endSeconds
+                cue.enabled && sec >= cue.startSeconds && sec <= cue.endSeconds
             }
         }) ?? (isInsideMuteInterval ? cues.first(where: { cue in
-            cue.enabled && cue.isMute && (cue.endSeconds + Self.muteTailSeconds + Self.muteBridgeThresholdSeconds >= sec && cue.startSeconds <= sec)
+            cue.enabled && cue
+                .isMute && (cue.endSeconds + Self.muteTailSeconds + Self.muteBridgeThresholdSeconds >= sec && cue.startSeconds <= sec)
         }) : nil)
 
         // Check for skip cues during playback

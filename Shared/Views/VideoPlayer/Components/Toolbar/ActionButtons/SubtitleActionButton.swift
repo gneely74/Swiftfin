@@ -22,7 +22,7 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
         private var selectedSubtitleStreamIndex: Int?
 
         private var systemImage: String {
-            if selectedSubtitleStreamIndex == nil {
+            if selectedSubtitleStreamIndex == nil || selectedSubtitleStreamIndex == -1 {
                 VideoPlayerActionButton.subtitles.secondarySystemImage
             } else {
                 VideoPlayerActionButton.subtitles.systemImage
@@ -31,10 +31,23 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
 
         @ViewBuilder
         private func content(playbackItem: MediaPlayerItem) -> some View {
-            Picker(L10n.subtitles, selection: $selectedSubtitleStreamIndex) {
-                ForEach(playbackItem.subtitleStreams.prepending(.none), id: \.index) { stream in
-                    Text(stream.displayTitle ?? L10n.unknown)
-                        .tag(stream.index as Int?)
+            ForEach(playbackItem.subtitleStreams.prepending(.none), id: \.index) { stream in
+                let streamIndex = stream.index
+                let isSelected: Bool = {
+                    let current = selectedSubtitleStreamIndex ?? playbackItem.selectedSubtitleStreamIndex ?? -1
+                    let target = streamIndex ?? -1
+                    return current == target
+                }()
+
+                Button {
+                    selectedSubtitleStreamIndex = streamIndex
+                    playbackItem.selectedSubtitleStreamIndex = streamIndex
+                } label: {
+                    if isSelected {
+                        Label(stream.displayTitle ?? L10n.unknown, systemImage: "checkmark")
+                    } else {
+                        Text(stream.displayTitle ?? L10n.unknown)
+                    }
                 }
             }
         }
@@ -53,10 +66,10 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
                     Label(L10n.subtitles, systemImage: systemImage)
                 }
                 .videoPlayerActionButtonTransition()
-                .assign(playbackItem.$selectedSubtitleStreamIndex, to: $selectedSubtitleStreamIndex)
-                .onChange(of: selectedSubtitleStreamIndex) {
-                    playbackItem.selectedSubtitleStreamIndex = selectedSubtitleStreamIndex
+                .onAppear {
+                    selectedSubtitleStreamIndex = playbackItem.selectedSubtitleStreamIndex
                 }
+                .assign(playbackItem.$selectedSubtitleStreamIndex, to: $selectedSubtitleStreamIndex)
             }
         }
     }

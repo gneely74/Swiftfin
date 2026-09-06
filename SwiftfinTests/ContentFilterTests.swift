@@ -456,4 +456,89 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertFalse(manager.isContentFilterMuted)
         XCTAssertFalse(manager.isMuted)
     }
+
+    @MainActor
+    func testMuteBridgingUnderThreshold() {
+        let manager = ContentFilterManager()
+        let cue1 = ContentFilterCue(
+            key: "c1",
+            start: "00:00:10.000",
+            end: "00:00:12.000",
+            description: "Profanity 1",
+            category: "profanity",
+            channel: "audio",
+            action: "mute",
+            enabled: true
+        )
+        // Gap is 1.0s (12.0s to 13.0s), which is <= muteBridgeThresholdSeconds (1.5s)
+        let cue2 = ContentFilterCue(
+            key: "c2",
+            start: "00:00:13.000",
+            end: "00:00:15.000",
+            description: "Profanity 2",
+            category: "profanity",
+            channel: "audio",
+            action: "mute",
+            enabled: true
+        )
+        manager.cues = [cue1, cue2]
+
+        // Bridging should merge them into 1 contiguous interval: [9.6s, 15.3s]
+        XCTAssertEqual(manager.bridgedMuteIntervals.count, 1)
+        XCTAssertEqual(manager.bridgedMuteIntervals.first?.lowerBound ?? 0, 9.6, accuracy: 0.001)
+        XCTAssertEqual(manager.bridgedMuteIntervals.first?.upperBound ?? 0, 15.3, accuracy: 0.001)
+
+        // Inside cue 1
+        manager.updateCurrentTime(.seconds(11.0))
+        XCTAssertTrue(manager.isContentFilterMuted)
+
+        // Inside the gap (12.5s) - should STAY muted without fluttering
+        manager.updateCurrentTime(.seconds(12.5))
+        XCTAssertTrue(manager.isContentFilterMuted, "Mute should stay active during bridged gap between back-to-back cues")
+        XCTAssertTrue(manager.isMuted)
+
+        // Inside cue 2
+        manager.updateCurrentTime(.seconds(14.0))
+        XCTAssertTrue(manager.isContentFilterMuted)
+
+        // After bridged interval (16.0s) - should unmute
+        manager.updateCurrentTime(.seconds(16.0))
+        XCTAssertFalse(manager.isContentFilterMuted)
+        XCTAssertFalse(manager.isMuted)
+    }
+
+    @MainActor
+    func testMuteBridgingOverThreshold() {
+        let manager = ContentFilterManager()
+        let cue1 = ContentFilterCue(
+            key: "c1",
+            start: "00:00:10.000",
+            end: "00:00:12.000",
+            description: "Profanity 1",
+            category: "profanity",
+            channel: "audio",
+            action: "mute",
+            enabled: true
+        )
+        // Gap is 4.0s (12.0s to 16.0s), which exceeds muteBridgeThresholdSeconds (1.5s)
+        let cue2 = ContentFilterCue(
+            key: "c2",
+            start: "00:00:16.000",
+            end: "00:00:18.000",
+            description: "Profanity 2",
+            category: "profanity",
+            channel: "audio",
+            action: "mute",
+            enabled: true
+        )
+        manager.cues = [cue1, cue2]
+
+        // Should NOT be merged: 2 separate intervals
+        XCTAssertEqual(manager.bridgedMuteIntervals.count, 2)
+
+        // Inside the gap at 14.0s - should NOT be muted
+        manager.updateCurrentTime(.seconds(14.0))
+        XCTAssertFalse(manager.isContentFilterMuted)
+        XCTAssertFalse(manager.isMuted)
+    }
 }

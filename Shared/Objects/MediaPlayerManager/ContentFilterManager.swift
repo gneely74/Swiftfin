@@ -18,7 +18,11 @@ final class ContentFilterManager: ObservableObject {
     @Published
     var activeFilter: ContentFilterResponse?
     @Published
-    var cues: [ContentFilterCue] = []
+    var cues: [ContentFilterCue] = [] {
+        didSet {
+            recalculateBridgedMuteIntervals()
+        }
+    }
     @Published
     var isMuted: Bool = false {
         didSet {
@@ -96,16 +100,56 @@ final class ContentFilterManager: ObservableObject {
     static let muteLeadSeconds: Double = 0.40
     // Tail padding after mute cue ends to prevent trailing consonant clicks (~300ms)
     static let muteTailSeconds: Double = 0.30
+    // Maximum gap between consecutive mute cues to bridge as a single continuous mute interval (~1.5s)
+    static let muteBridgeThresholdSeconds: Double = 1.50
+
+    @Published
+    private(set) var bridgedMuteIntervals: [ClosedRange<Double>] = []
+
+    func recalculateBridgedMuteIntervals() {
+        let sortedMuteCues = cues
+            .filter { $0.enabled && $0.isMute }
+            .sorted { $0.startSeconds < $1.startSeconds }
+
+        guard !sortedMuteCues.isEmpty else {
+            bridgedMuteIntervals = []
+            return
+        }
+
+        var intervals: [ClosedRange<Double>] = []
+
+        for cue in sortedMuteCues {
+            let start = max(0, cue.startSeconds - Self.muteLeadSeconds)
+            let end = cue.endSeconds + Self.muteTailSeconds
+
+            if let last = intervals.last {
+                if start <= last.upperBound + Self.muteBridgeThresholdSeconds {
+                    // Merge with the previous interval
+                    intervals[intervals.count - 1] = last.lowerBound ... max(last.upperBound, end)
+                } else {
+                    intervals.append(start ... end)
+                }
+            } else {
+                intervals.append(start ... end)
+            }
+        }
+
+        bridgedMuteIntervals = intervals
+    }
 
     func updateCurrentTime(_ seconds: Duration) {
         let sec = seconds.seconds
+        let isInsideMuteInterval = bridgedMuteIntervals.contains(where: { $0.contains(sec) })
+
         currentActiveCue = cues.first(where: { cue in
             if cue.isMute {
                 return cue.enabled && sec >= max(0, cue.startSeconds - Self.muteLeadSeconds) && sec <= (cue.endSeconds + Self.muteTailSeconds)
             } else {
                 return cue.enabled && sec >= cue.startSeconds && sec <= cue.endSeconds
             }
-        })
+        }) ?? (isInsideMuteInterval ? cues.first(where: { cue in
+            cue.enabled && cue.isMute && (cue.endSeconds + Self.muteTailSeconds + Self.muteBridgeThresholdSeconds >= sec && cue.startSeconds <= sec)
+        }) : nil)
 
         // Check for skip cues during playback
         if let currentActiveCue, currentActiveCue.isSkip, currentActiveCue.id != lastSkippedCueID {
@@ -114,14 +158,8 @@ final class ContentFilterManager: ObservableObject {
             triggerSkip(reason: currentActiveCue.description ?? currentActiveCue.category)
         }
 
-        // Check for mute cues during playback with pre-roll lead and post-roll tail padding
-        let activeMuteCue = cues.first(where: { cue in
-            cue.enabled && cue.isMute &&
-            sec >= max(0, cue.startSeconds - Self.muteLeadSeconds) &&
-            sec <= (cue.endSeconds + Self.muteTailSeconds)
-        })
-
-        if activeMuteCue != nil {
+        // Check for mute cues during playback with pre-roll lead, post-roll tail, and bridge coalescing
+        if isInsideMuteInterval {
             if !isContentFilterMuted {
                 isContentFilterMuted = true
                 manager?.proxy?.mute(faded: true)

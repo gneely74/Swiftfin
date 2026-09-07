@@ -18,11 +18,22 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
         @EnvironmentObject
         private var manager: MediaPlayerManager
 
-        @State
-        private var selectedSubtitleStreamIndex: Int?
+        var body: some View {
+            if let playbackItem = manager.playbackItem {
+                SubtitleMenu(playbackItem: playbackItem, isInMenu: isInMenu)
+            }
+        }
+    }
+
+    private struct SubtitleMenu: View {
+
+        @ObservedObject
+        var playbackItem: MediaPlayerItem
+
+        var isInMenu: Bool
 
         private var systemImage: String {
-            if selectedSubtitleStreamIndex == nil || selectedSubtitleStreamIndex == -1 {
+            if playbackItem.selectedSubtitleStreamIndex == nil || playbackItem.selectedSubtitleStreamIndex == -1 {
                 VideoPlayerActionButton.subtitles.secondarySystemImage
             } else {
                 VideoPlayerActionButton.subtitles.systemImage
@@ -30,17 +41,16 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
         }
 
         @ViewBuilder
-        private func content(playbackItem: MediaPlayerItem) -> some View {
+        private var content: some View {
             ForEach(playbackItem.subtitleStreams.prepending(.none), id: \.index) { stream in
                 let streamIndex = stream.index
                 let isSelected: Bool = {
-                    let current = selectedSubtitleStreamIndex ?? playbackItem.selectedSubtitleStreamIndex ?? -1
+                    let current = playbackItem.selectedSubtitleStreamIndex ?? -1
                     let target = streamIndex ?? -1
                     return current == target
                 }()
 
                 Button {
-                    selectedSubtitleStreamIndex = streamIndex
                     playbackItem.selectedSubtitleStreamIndex = streamIndex
                 } label: {
                     if isSelected {
@@ -53,23 +63,16 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
         }
 
         var body: some View {
-            if let playbackItem = manager.playbackItem {
-                Menu {
-                    if isInMenu {
-                        content(playbackItem: playbackItem)
-                    } else {
-                        Section(L10n.subtitles) {
-                            content(playbackItem: playbackItem)
-                        }
+            Menu {
+                if isInMenu {
+                    content
+                } else {
+                    Section(L10n.subtitles) {
+                        content
                     }
-                } label: {
-                    Label(L10n.subtitles, systemImage: systemImage)
                 }
-                .videoPlayerActionButtonTransition()
-                .onAppear {
-                    selectedSubtitleStreamIndex = playbackItem.selectedSubtitleStreamIndex
-                }
-                .assign(playbackItem.$selectedSubtitleStreamIndex, to: $selectedSubtitleStreamIndex)
+            } label: {
+                Label(L10n.subtitles, systemImage: systemImage)
             }
         }
     }

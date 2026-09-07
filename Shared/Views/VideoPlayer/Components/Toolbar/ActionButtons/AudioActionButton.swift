@@ -18,11 +18,22 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
         @EnvironmentObject
         private var manager: MediaPlayerManager
 
-        @State
-        private var selectedAudioStreamIndex: Int?
+        var body: some View {
+            if let playbackItem = manager.playbackItem {
+                AudioMenu(playbackItem: playbackItem, isInMenu: isInMenu)
+            }
+        }
+    }
+
+    private struct AudioMenu: View {
+
+        @ObservedObject
+        var playbackItem: MediaPlayerItem
+
+        var isInMenu: Bool
 
         private var systemImage: String {
-            if selectedAudioStreamIndex == nil {
+            if playbackItem.selectedAudioStreamIndex == nil {
                 VideoPlayerActionButton.audio.secondarySystemImage
             } else {
                 VideoPlayerActionButton.audio.systemImage
@@ -30,13 +41,12 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
         }
 
         @ViewBuilder
-        private func content(playbackItem: MediaPlayerItem) -> some View {
+        private var content: some View {
             ForEach(playbackItem.audioStreams, id: \.index) { stream in
                 let streamIndex = stream.index
-                let isSelected = (selectedAudioStreamIndex ?? playbackItem.selectedAudioStreamIndex) == streamIndex
+                let isSelected = playbackItem.selectedAudioStreamIndex == streamIndex
 
                 Button {
-                    selectedAudioStreamIndex = streamIndex
                     playbackItem.selectedAudioStreamIndex = streamIndex
                 } label: {
                     if isSelected {
@@ -49,23 +59,16 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
         }
 
         var body: some View {
-            if let playbackItem = manager.playbackItem {
-                Menu {
-                    if isInMenu {
-                        content(playbackItem: playbackItem)
-                    } else {
-                        Section(L10n.audio) {
-                            content(playbackItem: playbackItem)
-                        }
+            Menu {
+                if isInMenu {
+                    content
+                } else {
+                    Section(L10n.audio) {
+                        content
                     }
-                } label: {
-                    Label(L10n.audio, systemImage: systemImage)
                 }
-                .videoPlayerActionButtonTransition()
-                .onAppear {
-                    selectedAudioStreamIndex = playbackItem.selectedAudioStreamIndex
-                }
-                .assign(playbackItem.$selectedAudioStreamIndex, to: $selectedAudioStreamIndex)
+            } label: {
+                Label(L10n.audio, systemImage: systemImage)
             }
         }
     }

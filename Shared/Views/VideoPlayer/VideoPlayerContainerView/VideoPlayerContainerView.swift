@@ -845,23 +845,35 @@ extension VideoPlayer {
         }
 
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            containerState.timer.poke()
+
             for press in presses {
                 switch press.type {
-                case .playPause, .select, .menu:
+                case .playPause, .menu:
                     continue
-                default:
-                    let defaultAction: () -> Void = { [weak self] in
-                        guard let self else { return }
-                        self.forwardPressesBegan([press], event: event)
+                case .select:
+                    if containerState.isPresentingOverlay, !containerState.isProgressBarFocused, !containerState.isScrubbing {
+                        super.pressesBegan([press], with: event)
                     }
+                case .leftArrow, .rightArrow:
+                    if containerState.isProgressBarFocused {
+                        let defaultAction: () -> Void = { [weak self] in
+                            guard let self else { return }
+                            self.forwardPressesBegan([press], event: event)
+                        }
 
-                    onPressEvent.send(
-                        .init(
-                            type: press.type,
-                            phase: press.phase,
-                            defaultAction: defaultAction
+                        onPressEvent.send(
+                            .init(
+                                type: press.type,
+                                phase: press.phase,
+                                defaultAction: defaultAction
+                            )
                         )
-                    )
+                        continue
+                    }
+                    super.pressesBegan([press], with: event)
+                default:
+                    super.pressesBegan([press], with: event)
                 }
             }
         }
@@ -875,19 +887,25 @@ extension VideoPlayer {
                     handleSelectEnded(press, event: event)
                 case .menu:
                     handleMenuEnded()
-                default:
-                    let defaultAction: () -> Void = { [weak self] in
-                        guard let self else { return }
-                        self.forwardPressesEnded([press], event: event)
-                    }
+                case .leftArrow, .rightArrow:
+                    if containerState.isProgressBarFocused {
+                        let defaultAction: () -> Void = { [weak self] in
+                            guard let self else { return }
+                            self.forwardPressesEnded([press], event: event)
+                        }
 
-                    onPressEvent.send(
-                        .init(
-                            type: press.type,
-                            phase: press.phase,
-                            defaultAction: defaultAction
+                        onPressEvent.send(
+                            .init(
+                                type: press.type,
+                                phase: press.phase,
+                                defaultAction: defaultAction
+                            )
                         )
-                    )
+                        continue
+                    }
+                    super.pressesEnded([press], with: event)
+                default:
+                    super.pressesEnded([press], with: event)
                 }
             }
         }

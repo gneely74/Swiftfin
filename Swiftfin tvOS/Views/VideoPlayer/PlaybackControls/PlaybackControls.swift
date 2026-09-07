@@ -70,8 +70,10 @@ extension VideoPlayer {
             } message: {
                 Text(L10n.closePlayerWarning)
             }
-            .onChange(of: containerState.isPresentingOverlay) {
-                isPlaybackProgressFocused = true
+            .onChange(of: containerState.isPresentingOverlay) { _, isPresenting in
+                if isPresenting {
+                    isPlaybackProgressFocused = true
+                }
             }
             .onChange(of: manager.playbackRequestStatus) {
                 if manager.playbackRequestStatus == .paused, !containerState.isPresentingOverlay {

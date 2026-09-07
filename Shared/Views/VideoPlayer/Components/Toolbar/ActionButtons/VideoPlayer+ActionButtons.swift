@@ -152,8 +152,7 @@ extension VideoPlayer.PlaybackControls.Toolbar {
             }
             .defaultFocus(
                 $focusedButton,
-                barActionButtons.first?.rawValue ?? "menu",
-                priority: .userInitiated
+                barActionButtons.first?.rawValue ?? "menu"
             )
             .focusSection()
         }

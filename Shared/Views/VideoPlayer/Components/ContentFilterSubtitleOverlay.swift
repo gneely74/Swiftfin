@@ -26,7 +26,8 @@ struct ContentFilterSubtitleOverlay: View {
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.black.opacity(0.75))
+                            .fill(Color.black)
+                            .shadow(color: .black.opacity(0.6), radius: 4, x: 0, y: 2)
                     )
                     .padding(.bottom, UIDevice.isTV ? 90 : 60)
                     .padding(.horizontal, 40)

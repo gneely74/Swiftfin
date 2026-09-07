@@ -214,11 +214,14 @@ final class ContentFilterManager: ObservableObject {
     }
 
     private func enableFilteredSubtitleIfApplicable() {
-        if let playbackItem = manager?.playbackItem {
-            // "unless another subtitle has already been selected"
-            let currentSubIndex = playbackItem.selectedSubtitleStreamIndex
-            let hasSelectedSubtitle = (currentSubIndex != nil && currentSubIndex != -1)
-            guard !hasSelectedSubtitle else { return }
+        if let playbackItem = manager?.playbackItem,
+           let currentSubIndex = playbackItem.selectedSubtitleStreamIndex,
+           currentSubIndex != -1,
+           let currentStream = playbackItem.subtitleStreams.first(where: { $0.index == currentSubIndex }),
+           currentStream.isFilteredSubtitle
+        {
+            // Already using a clean/filtered subtitle stream, no overlay needed
+            return
         }
 
         guard !filteredSubtitles.isEmpty else { return }

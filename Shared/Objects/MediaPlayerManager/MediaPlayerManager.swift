@@ -238,12 +238,6 @@ final class MediaPlayerManager: ViewModel {
 
         self.contentFilterManager.manager = self
         self.queue?.manager = self
-
-        self.contentFilterManager.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
     }
 
     init(
@@ -257,12 +251,6 @@ final class MediaPlayerManager: ViewModel {
 
         self.contentFilterManager.manager = self
         self.queue?.manager = self
-
-        self.contentFilterManager.objectWillChange
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-            .store(in: &cancellables)
         self.playbackItem = playbackItem
     }
 

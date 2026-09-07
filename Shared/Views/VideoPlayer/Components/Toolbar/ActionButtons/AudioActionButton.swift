@@ -60,13 +60,17 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
 
         var body: some View {
             Menu {
-                if isInMenu {
-                    content
-                } else {
-                    Section(L10n.audio) {
+                Group {
+                    if isInMenu {
                         content
+                    } else {
+                        Section(L10n.audio) {
+                            content
+                        }
                     }
                 }
+                .buttonStyle(.automatic)
+                .labelStyle(.automatic)
             } label: {
                 Label(L10n.audio, systemImage: systemImage)
             }

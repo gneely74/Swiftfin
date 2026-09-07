@@ -142,7 +142,7 @@ final class ContentFilterManager: ObservableObject {
         let sec = seconds.seconds
         let isInsideMuteInterval = bridgedMuteIntervals.contains(where: { $0.contains(sec) })
 
-        currentActiveCue = cues.first(where: { cue in
+        let newActiveCue = cues.first(where: { cue in
             if cue.isMute {
                 cue.enabled && sec >= max(0, cue.startSeconds - Self.muteLeadSeconds) && sec <= (cue.endSeconds + Self.muteTailSeconds)
             } else {
@@ -152,6 +152,10 @@ final class ContentFilterManager: ObservableObject {
             cue.enabled && cue
                 .isMute && (cue.endSeconds + Self.muteTailSeconds + Self.muteBridgeThresholdSeconds >= sec && cue.startSeconds <= sec)
         }) : nil)
+
+        if currentActiveCue?.id != newActiveCue?.id {
+            currentActiveCue = newActiveCue
+        }
 
         // Check for skip cues during playback
         if let currentActiveCue, currentActiveCue.isSkip, currentActiveCue.id != lastSkippedCueID {
@@ -178,7 +182,9 @@ final class ContentFilterManager: ObservableObject {
             let matchingSubtitle = filteredSubtitles.first(where: {
                 sec >= max(0, $0.startSeconds - Self.muteLeadSeconds) && sec <= ($0.endSeconds + Self.muteTailSeconds)
             })
-            activeFilteredSubtitleText = matchingSubtitle?.text
+            if activeFilteredSubtitleText != matchingSubtitle?.text {
+                activeFilteredSubtitleText = matchingSubtitle?.text
+            }
         }
     }
 

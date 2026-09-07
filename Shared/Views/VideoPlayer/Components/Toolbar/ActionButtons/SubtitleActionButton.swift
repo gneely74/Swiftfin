@@ -64,13 +64,17 @@ extension VideoPlayer.PlaybackControls.Toolbar.ActionButtons {
 
         var body: some View {
             Menu {
-                if isInMenu {
-                    content
-                } else {
-                    Section(L10n.subtitles) {
+                Group {
+                    if isInMenu {
                         content
+                    } else {
+                        Section(L10n.subtitles) {
+                            content
+                        }
                     }
                 }
+                .buttonStyle(.automatic)
+                .labelStyle(.automatic)
             } label: {
                 Label(L10n.subtitles, systemImage: systemImage)
             }

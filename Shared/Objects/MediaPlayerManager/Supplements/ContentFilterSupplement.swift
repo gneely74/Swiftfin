@@ -11,16 +11,30 @@ import Defaults
 import SwiftUI
 
 // swiftlint:disable hard_coded_display_string
+
+/// Represents the dedicated \"Content Filter\" supplement panel presented in the media player's top drawer.
+///
+/// Conforms to `MediaPlayerSupplement` to integrate seamlessly alongside the Info and Chapters tabs,
+/// displaying category breakdowns, cue statistics, and a sanitized, profanity-masked list of timestamps.
 class ContentFilterSupplement: ObservableObject, MediaPlayerSupplement {
 
+    /// Display title rendered on the drawer navigation tab button.
     let displayTitle: String = "Content Filter"
+
+    /// Unique identifier for this supplement tab.
     let id: String = "ContentFilter"
+
+    /// The active content filter manager providing cues and statistics.
     let contentFilterManager: ContentFilterManager
 
+    /// Initializes a new Content Filter supplement tab.
+    ///
+    /// - Parameter contentFilterManager: The content filter manager instance driving playback filtering.
     init(contentFilterManager: ContentFilterManager) {
         self.contentFilterManager = contentFilterManager
     }
 
+    /// The SwiftUI view body rendered inside the drawer container when this supplement is selected.
     var videoPlayerBody: some PlatformView {
         ContentFilterOverlay(contentFilterManager: contentFilterManager)
     }
@@ -28,6 +42,7 @@ class ContentFilterSupplement: ObservableObject, MediaPlayerSupplement {
 
 extension ContentFilterSupplement {
 
+    /// Internal platform view that renders the supplement drawer content across tvOS and iOS.
     private struct ContentFilterOverlay: PlatformView {
 
         @Environment(\.safeAreaInsets)
@@ -41,6 +56,7 @@ extension ContentFilterSupplement {
         @ObservedObject
         var contentFilterManager: ContentFilterManager
 
+        /// iOS-specific layout responding to compact (iPhone portrait) and regular (iPad/landscape) modes.
         var iOSView: some View {
             CompactOrRegularView(
                 isCompact: containerState.isCompact
@@ -53,11 +69,13 @@ extension ContentFilterSupplement {
             .padding(.trailing, safeAreaInsets.trailing)
         }
 
+        /// tvOS-specific layout with focus section wrapping for Apple TV remote navigation.
         var tvOSView: some View {
             regularContent
                 .focusSection()
         }
 
+        /// Header banner displaying total cue counts, category breakdown, and shield icon.
         @ViewBuilder
         private var summaryHeader: some View {
             HStack(spacing: 16) {
@@ -94,6 +112,7 @@ extension ContentFilterSupplement {
             .padding(.vertical, 8)
         }
 
+        /// Scrollable list of enabled cues displaying masked descriptions, timestamps, and action pills.
         @ViewBuilder
         private var cueList: some View {
             ForEach(contentFilterManager.enabledCues) { cue in
@@ -149,6 +168,7 @@ extension ContentFilterSupplement {
             }
         }
 
+        /// Compact vertical layout for iPhone screens.
         @ViewBuilder
         private var compactContent: some View {
             ScrollView {
@@ -163,6 +183,7 @@ extension ContentFilterSupplement {
             .edgePadding()
         }
 
+        /// Regular layout for Apple TV and iPad displays.
         @ViewBuilder
         private var regularContent: some View {
             ScrollView {

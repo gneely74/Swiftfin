@@ -11,6 +11,7 @@ import JellyfinAPI
 import SwiftUI
 import XCTest
 
+/// Test mock conforming to ``MediaPlayerProxy`` for verifying socket commands and mute state mutations.
 final class MockMediaPlayerProxy: MediaPlayerProxy {
 
     let isBuffering: PublishedBox<Bool> = .init(initialValue: false)
@@ -28,33 +29,45 @@ final class MockMediaPlayerProxy: MediaPlayerProxy {
     func setRate(_ rate: Float) {}
     func setSeconds(_ seconds: Duration) {}
 
+    /// Mutes the mock proxy without fading.
     func mute() {
         mute(faded: false)
     }
 
+    /// Mutes the mock proxy and sets `isMuted.value = true`.
+    /// - Parameter faded: Ignored in mock.
     func mute(faded: Bool) {
         isMuted.value = true
     }
 
+    /// Unmutes the mock proxy without fading.
     func unmute() {
         unmute(faded: false)
     }
 
+    /// Unmutes the mock proxy and sets `isMuted.value = false`.
+    /// - Parameter faded: Ignored in mock.
     func unmute(faded: Bool) {
         isMuted.value = false
     }
 
+    /// Toggles the mock proxy mute state without fading.
     func toggleMute() {
         toggleMute(faded: false)
     }
 
+    /// Toggles the mock proxy mute state.
+    /// - Parameter faded: Ignored in mock.
     func toggleMute(faded: Bool) {
         isMuted.value.toggle()
     }
 }
 
+/// Unit test suite verifying ContentFilter cue parsing, evaluation, socket command routing,
+/// subtitle masking, SRT decoding, and autonomous client-side mute bridging.
 final class ContentFilterSocketTests: XCTestCase {
 
+    /// Verifies that invoking `mute()` correctly updates the proxy's `isMuted` box to `true`.
     func testMuteCommandRouting() {
         let mockProxy = MockMediaPlayerProxy()
         XCTAssertFalse(mockProxy.isMuted.value, "Player proxy should initially be unmuted")
@@ -63,6 +76,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertTrue(mockProxy.isMuted.value, "Player proxy should be muted upon calling mute()")
     }
 
+    /// Verifies that invoking `unmute()` resets the proxy's `isMuted` box to `false`.
     func testUnmuteCommandRouting() {
         let mockProxy = MockMediaPlayerProxy()
         mockProxy.mute()
@@ -72,6 +86,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertFalse(mockProxy.isMuted.value, "Player proxy should be unmuted upon calling unmute()")
     }
 
+    /// Verifies that `toggleMute()` inverts the mute state sequentially.
     func testToggleMuteCommandRouting() {
         let mockProxy = MockMediaPlayerProxy()
         XCTAssertFalse(mockProxy.isMuted.value)
@@ -83,6 +98,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertFalse(mockProxy.isMuted.value, "Player proxy should toggle to unmuted")
     }
 
+    /// Verifies parsing of HH:MM:SS.mmm, MM:SS.mmm, and decimal second timestamp formats.
     func testTimestampParsing() {
         XCTAssertEqual(ContentFilterCue.parseTimestamp("00:01:23.500"), 83.5, accuracy: 0.001)
         XCTAssertEqual(ContentFilterCue.parseTimestamp("01:30.000"), 90.0, accuracy: 0.001)
@@ -90,6 +106,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertEqual(ContentFilterCue.parseTimestamp("45.2"), 45.2, accuracy: 0.001)
     }
 
+    /// Verifies cue classification properties (`isMute`, `isSkip`, `duration`).
     func testCueClassification() {
         let muteCue = ContentFilterCue(
             key: "1",
@@ -120,6 +137,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertEqual(skipCue.duration.seconds, 20.0, accuracy: 0.001)
     }
 
+    /// Verifies active cue detection, mute count, and lead/tail padding windows in ``ContentFilterManager``.
     @MainActor
     func testContentFilterManagerActiveCue() {
         let manager = ContentFilterManager()
@@ -181,6 +199,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertEqual(manager.currentActiveCue?.key, "2")
     }
 
+    /// Verifies parsing of valid SRT strings and stripping of HTML/bracket tags.
     func testSRTParser() {
         let sampleSRT = """
         1
@@ -213,6 +232,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertEqual(parsed[2].text, "Brackets formatting")
     }
 
+    /// Verifies that empty, corrupt, or invalid SRT content parses safely into empty results.
     func testSRTParserEmptyAndMalformed() {
         XCTAssertTrue(ContentFilterSRTParser.parse(srt: "").isEmpty)
         XCTAssertTrue(ContentFilterSRTParser.parse(srt: "Invalid junk text without timestamps").isEmpty)
@@ -226,6 +246,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertTrue(ContentFilterSRTParser.parse(srt: reversedTimecode).isEmpty)
     }
 
+    /// Verifies triggering a scene skip badge and clearing skip state.
     @MainActor
     func testSkipTriggerAndReset() {
         let manager = ContentFilterManager()
@@ -241,6 +262,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertNil(manager.lastSkipReason)
     }
 
+    /// Verifies detection of filtered subtitle streams based on track title and comment tags.
     func testMediaStreamFilteredSubtitleMatching() {
         let cleanSub = MediaStream(comment: nil, displayTitle: "English [Clean]", index: 1, title: "Clean", type: .subtitle)
         let filteredSub = MediaStream(
@@ -265,6 +287,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertNil(noFilterStreams.filteredSubtitleStream)
     }
 
+    /// Verifies that filtered subtitle overlay displays matching lines during mute and clears upon unmute.
     @MainActor
     func testFilteredSubtitleOverlayDuringMute() {
         let manager = ContentFilterManager()
@@ -295,6 +318,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertNil(manager.activeFilteredSubtitleText)
     }
 
+    /// Verifies resilient decoding of filter responses where year is formatted as a string.
     func testResilientFilterResponseDecodingStringYear() throws {
         let json = """
         {
@@ -324,6 +348,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertTrue(response.cues.first?.isMute == true)
     }
 
+    /// Verifies resilient decoding of filter responses with PascalCase keys and integer year representation.
     func testResilientFilterResponseDecodingPascalCaseAndIntYear() throws {
         let json = """
         {
@@ -349,6 +374,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertTrue(response.cues.first?.enabled == true)
     }
 
+    /// Verifies resilient decoding when the year field is empty and cues array is omitted.
     func testResilientFilterResponseDecodingEmptyYearAndMissingCues() throws {
         let json = """
         {
@@ -363,6 +389,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertTrue(response.cues.isEmpty)
     }
 
+    /// Verifies conversion of 32-character hexadecimal strings into standard 8-4-4-4-12 hyphenated GUIDs.
     func testGUIDFormatting() {
         let raw = "2b69424c5bb947c6a0c0adad5feefba7"
         let expected = "2b69424c-5bb9-47c6-a0c0-adad5feefba7"
@@ -375,6 +402,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertEqual(ContentFilterService.formatGUID("short-id"), "short-id")
     }
 
+    /// Verifies profanity redaction across single words, phrases, sentences, and empty inputs.
     func testContentFilterWordMasker() {
         // Individual profanity words
         XCTAssertEqual(ContentFilterWordMasker.mask("fuck"), "f***")
@@ -402,6 +430,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertEqual(ContentFilterWordMasker.mask(""), "")
     }
 
+    /// Verifies autonomous client-side mute evaluation without server-side intervention.
     @MainActor
     func testAutonomousClientSideMuting() {
         let manager = ContentFilterManager()
@@ -457,6 +486,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertFalse(manager.isMuted)
     }
 
+    /// Verifies that mute cues separated by less than 1.5 seconds are coalesced into a single contiguous mute interval.
     @MainActor
     func testMuteBridgingUnderThreshold() {
         let manager = ContentFilterManager()
@@ -507,6 +537,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertFalse(manager.isMuted)
     }
 
+    /// Verifies that mute cues separated by more than 1.5 seconds remain discrete and are not bridged.
     @MainActor
     func testMuteBridgingOverThreshold() {
         let manager = ContentFilterManager()

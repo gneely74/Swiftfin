@@ -8,23 +8,50 @@
 
 import Foundation
 
+/// Represents a parsed dialogue subtitle cue extracted from a clean sidecar `.srt` file.
+///
+/// Used by `ContentFilterSubtitleOverlay` to render filtered dialogue during audio mutes.
 struct ContentFilterSubtitleItem: Identifiable, Equatable, Hashable {
+
+    /// Numerical sequence identifier for the subtitle block.
     let id: Int
+
+    /// Start timestamp of this subtitle line in floating-point seconds.
     let startSeconds: Double
+
+    /// End timestamp of this subtitle line in floating-point seconds.
     let endSeconds: Double
+
+    /// The cleaned dialogue text to display (with HTML and styling tags stripped).
     let text: String
 
+    /// Start time represented as a native Swift `Duration`.
     var startDuration: Duration {
         .seconds(startSeconds)
     }
 
+    /// End time represented as a native Swift `Duration`.
     var endDuration: Duration {
         .seconds(endSeconds)
     }
 }
 
+/// Parser utility for converting SubRip (`.srt`) subtitle text into structured `ContentFilterSubtitleItem` models.
 enum ContentFilterSRTParser {
 
+    /// Parses the raw string contents of an SRT file into an array of chronologically sorted subtitle items.
+    ///
+    /// Handles standard SRT blocks:
+    /// ```text
+    /// 1
+    /// 00:01:20,000 --> 00:01:23,500
+    /// Dialogue text here.
+    /// ```
+    /// Also supports formats where the numerical index line is omitted or merged, and normalizes
+    /// Windows (`\r\n`), legacy Mac (`\r`), and Unix (`\n`) line endings.
+    ///
+    /// - Parameter srt: Raw SubRip subtitle file text.
+    /// - Returns: An array of `ContentFilterSubtitleItem` instances sorted ascending by `startSeconds`.
     static func parse(srt: String) -> [ContentFilterSubtitleItem] {
         let normalized = srt
             .replacingOccurrences(of: "\r\n", with: "\n")
@@ -85,9 +112,15 @@ enum ContentFilterSRTParser {
         return items.sorted(by: { $0.startSeconds < $1.startSeconds })
     }
 
+    /// Strips HTML formatting tags (e.g. `<i>`, `</i>`, `<font color=...>`, `</font>`) and
+    /// WebVTT/ASS override curly brace tags (e.g. `{y:i}`, `{\an8}`) from subtitle text.
+    ///
+    /// - Parameter text: Raw subtitle text containing markup.
+    /// - Returns: Clean plain-text dialogue.
     private static func stripFormatting(_ text: String) -> String {
-        // Strip HTML/WebVTT styling tags (e.g. <i>, </i>, <font ...>, </font>, {y:i})
+        // Strip HTML/WebVTT styling tags (e.g. <i>, </i>, <font ...>, </font>)
         var result = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        // Strip ASS/SSA curly-brace override tags (e.g. {\an8})
         result = result.replacingOccurrences(of: "\\{[^\\}]+\\}", with: "", options: .regularExpression)
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }

@@ -144,8 +144,11 @@ extension VideoPlayer {
             }
         }
 
+        /// Container view hosting the on-screen ContentFilter status badges (mute indicator, skip badge)
+        /// in the upper trailing corner of the video frame.
         private struct ContentFilterHUDContainer: View {
 
+            /// Active ContentFilterManager observed for muting, skipping, and cue metadata.
             @ObservedObject
             var contentFilterManager: ContentFilterManager
 
@@ -166,8 +169,10 @@ extension VideoPlayer {
             }
         }
 
+        /// Container view hosting the custom high-contrast masked subtitle text overlay during active muting.
         private struct ContentFilterSubtitleContainer: View {
 
+            /// Active ContentFilterManager observed for masked subtitle cue text.
             @ObservedObject
             var contentFilterManager: ContentFilterManager
 

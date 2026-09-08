@@ -8,12 +8,17 @@
 
 import SwiftUI
 
+/// Container view that observes `ContentFilterManager` and supplies runtime metrics to `ContentFilterTrackOverlay`.
 struct ContentFilterTrackOverlayContainer: View {
 
+    /// The active content filter manager containing cue data.
     @ObservedObject
     var contentFilterManager: ContentFilterManager
+
+    /// Total media runtime of the playing item.
     let runtime: Duration
 
+    /// Computes the effective runtime, falling back to the maximum cue end time if duration is unknown.
     private var effectiveRuntime: Duration {
         if runtime > .zero {
             return runtime
@@ -29,9 +34,16 @@ struct ContentFilterTrackOverlayContainer: View {
     }
 }
 
+/// Renders visual content filter indicators directly over the video player's progress scrubber track.
+///
+/// - **Amber/Yellow Vertical Ticks**: Indicate discrete dialogue audio mute cues.
+/// - **Orange Horizontal Spans**: Indicate visual scene skip segments.
 struct ContentFilterTrackOverlay: View {
 
+    /// The complete list of content filter cues to render.
     let cues: [ContentFilterCue]
+
+    /// The total media duration used to compute relative horizontal position fractions.
     let runtime: Duration
 
     var body: some View {

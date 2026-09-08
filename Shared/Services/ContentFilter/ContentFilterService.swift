@@ -11,13 +11,26 @@ import Get
 import JellyfinAPI
 import Logging
 
+/// Network service responsible for discovering and downloading content filter rules and
+/// filtered subtitle tracks from the Jellyfin ContentFilter plugin API.
 final class ContentFilterService {
 
+    /// Shared singleton instance of the content filter service.
     static let shared = ContentFilterService()
+
+    /// Diagnostic logger configured for Swiftfin network operations.
     private let logger = Logger.swiftfin()
 
+    /// Private initializer enforcing singleton pattern.
     private init() {}
 
+    /// Formats a raw 32-character hexadecimal string into a standard hyphenated UUID format (`8-4-4-4-12`).
+    ///
+    /// Jellyfin server endpoints frequently require standard UUID hyphenation to properly match library item keys.
+    ///
+    /// - Parameter rawID: The input identifier (with or without hyphens).
+    /// - Returns: A canonical hyphenated UUID string if the input contains 32 hexadecimal characters;
+    ///   otherwise, returns the unmodified `rawID`.
     static func formatGUID(_ rawID: String) -> String {
         let clean = rawID.replacingOccurrences(of: "-", with: "")
         guard clean.count == 32 else { return rawID }
@@ -29,6 +42,16 @@ final class ContentFilterService {
         return "\(p1)-\(p2)-\(p3)-\(p4)-\(p5)"
     }
 
+    /// Fetches the content filter response (cues and metadata) for a given media item from the Jellyfin server.
+    ///
+    /// Tries multiple endpoint paths (hyphenated GUID and raw ID) and utilizes a two-tier network approach:
+    /// 1. **Primary**: Uses `session.client.data(for:)` which preserves Swiftfin authentication, proxy settings, and SSL delegates.
+    /// 2. **Fallback**: Directly queries `effectiveServerURL` using `URLSession.shared` with explicit Emby/Jellyfin auth headers.
+    ///
+    /// - Parameters:
+    ///   - itemID: The Jellyfin unique identifier of the media item.
+    ///   - session: The active `UserSession` providing base URLs and authentication credentials.
+    /// - Returns: A decoded `ContentFilterResponse` containing cues if found and successfully decoded; otherwise `nil`.
     func fetchFilter(for itemID: String, session: UserSession) async -> ContentFilterResponse? {
         let guid = Self.formatGUID(itemID)
         logger.info("ContentFilterService: Fetching filter for itemID=\(itemID), formattedGUID=\(guid)")
@@ -90,6 +113,15 @@ final class ContentFilterService {
         return nil
     }
 
+    /// Fetches and parses clean, profanity-filtered subtitle tracks in SubRip (`.srt`) format from the server.
+    ///
+    /// When available, filtered subtitles allow Swiftfin to display dialog text during active audio mutes
+    /// without showing offensive words on screen.
+    ///
+    /// - Parameters:
+    ///   - itemID: The Jellyfin unique identifier of the media item.
+    ///   - session: The active `UserSession` providing base URLs and authentication credentials.
+    /// - Returns: An array of sorted `ContentFilterSubtitleItem` structs, or `nil` if no subtitle is available.
     func fetchFilteredSubtitle(for itemID: String, session: UserSession) async -> [ContentFilterSubtitleItem]? {
         let guid = Self.formatGUID(itemID)
         let paths = [

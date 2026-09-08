@@ -10,6 +10,8 @@ import SwiftUI
 
 // TODO: refine segment animations when swiping fast
 
+/// A tvOS timeline scrubber slider component supporting Siri Remote gestures, scrubbing ticks,
+/// and overlaid ContentFilter mute and skip cue track segments.
 struct VideoPlayerSlider<Value: BinaryFloatingPoint>: View {
 
     @Binding
@@ -22,6 +24,14 @@ struct VideoPlayerSlider<Value: BinaryFloatingPoint>: View {
     private let runtime: Duration
     private var onEditingChanged: (Bool) -> Void
 
+    /// Initializes a tvOS video player slider.
+    /// - Parameters:
+    ///   - value: Binding to the current scrubbing progress.
+    ///   - currentProgress: Current playback progress position before scrub initiated.
+    ///   - total: Total span of the slider track.
+    ///   - isScrollingEnabled: Whether remote scrolling interaction is enabled.
+    ///   - contentFilterManager: Optional ContentFilterManager providing cues for track overlay rendering.
+    ///   - runtime: Total media duration for scaling track cues.
     init(
         value: Binding<Value>,
         currentProgress: Value?,
@@ -57,11 +67,15 @@ struct VideoPlayerSlider<Value: BinaryFloatingPoint>: View {
 
 extension VideoPlayerSlider {
 
+    /// Attaches an editing change callback to the slider.
+    /// - Parameter action: Callback invoked with `true` when scrub begins and `false` when scrub ends.
+    /// - Returns: Modified slider instance.
     func onEditingChanged(_ action: @escaping (Bool) -> Void) -> Self {
         copy(modifying: \.onEditingChanged, with: action)
     }
 }
 
+/// The visual track rendering content for ``VideoPlayerSlider``.
 private struct VideoPlayerSliderContent: SliderContentView {
 
     @Environment(\.isEnabled)

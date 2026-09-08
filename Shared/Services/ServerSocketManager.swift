@@ -12,6 +12,11 @@ import JellyfinAPI
 import Logging
 import os
 
+/// Manages the persistent WebSocket connection between Swiftfin and the Jellyfin server.
+///
+/// Advertises client capabilities (including media control and stream-level audio muting commands),
+/// handles automatic reconnection with exponential backoff, and publishes incoming remote control
+/// and playback commands to subscribers.
 final class ServerSocketManager {
 
     private struct Claim {
@@ -27,8 +32,10 @@ final class ServerSocketManager {
         var reconnectRequested = false
     }
 
+    /// Current value subject emitting `true` when the WebSocket connection is actively established.
     let isConnected = CurrentValueSubject<Bool, Never>(false)
 
+    /// Publisher emitting non-subscription session events from the WebSocket.
     var events: AnyPublisher<JellyfinSocket.Session.Event, Never> {
         allEvents
             .filter { $0.subscription == nil }
@@ -46,6 +53,7 @@ final class ServerSocketManager {
 
     private weak var userSession: UserSession?
 
+    /// Initializes a new ServerSocketManager instance.
     init() {
         (wakeStream, wake) = AsyncStream<Void>.makeStream()
     }
@@ -55,6 +63,7 @@ final class ServerSocketManager {
         wake.finish()
     }
 
+    /// Starts connection and server-change observation background tasks.
     private func start() {
         stop()
         tasks = [
@@ -63,20 +72,28 @@ final class ServerSocketManager {
         ]
     }
 
+    /// Stops all running connection tasks and terminates the active WebSocket session.
     private func stop() {
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
         killSession()
     }
 
+    /// Requests an explicit reconnection of the WebSocket session.
     private func reconnect() {
         state.withLock { $0.reconnectRequested = true }
         killSession()
         wake.yield()
     }
 
-    /// Subscribe the socket to a high volume subscription (E.G. Activities, Sessions, etc.).
-    /// Releasing the cancellable unsubscribes the socket from that subscription.
+    /// Subscribes the socket to a high volume Jellyfin subscription (e.g., Activities, Sessions, Scheduled Tasks).
+    ///
+    /// Releasing the returned cancellable unsubscribes the socket from that topic.
+    /// - Parameters:
+    ///   - subscription: The Jellyfin socket subscription topic.
+    ///   - delay: Initial delay duration before emission begins.
+    ///   - interval: Recurrence interval for receiving topic updates.
+    /// - Returns: An `AnyCancellable` that cancels the topic subscription when released.
     func subscribe(
         _ subscription: JellyfinSocket.Subscription,
         delay: Duration,
@@ -104,10 +121,15 @@ final class ServerSocketManager {
         }
     }
 
+    /// Disconnects and releases the current socket session.
     private func killSession() {
         state.withLock { $0.session }?.disconnect()
     }
 
+    /// Long-running task loop maintaining the WebSocket connection.
+    ///
+    /// Configures supported commands (including `.mute`, `.unmute`, `.toggleMute` required for server-side
+    /// ContentFilter integration) and reconnects with backoff upon termination.
     private func runConnection() async {
         var wakeIterator = wakeStream.makeAsyncIterator()
 
@@ -200,6 +222,7 @@ final class ServerSocketManager {
         }
     }
 
+    /// Observes server connection change notifications and triggers socket reconnection.
     private func observeServerConnectionChange() async {
         for await _ in Notifications[.didChangeServerConnection].publisher.values {
             logger.debug("Reconnecting the socket (Server Connection Changed)")
@@ -210,14 +233,17 @@ final class ServerSocketManager {
 
 extension ServerSocketManager: UserSessionService {
 
+    /// Invoked before user session initialization; stores session reference.
     func willStart(userSession: UserSession) async {
         self.userSession = userSession
     }
 
+    /// Invoked when the user session has started; initiates socket connection tasks.
     func didStart(userSession: UserSession) {
         start()
     }
 
+    /// Invoked before user session termination; stops socket connection tasks.
     func willStop(userSession: UserSession) {
         stop()
     }
@@ -227,6 +253,7 @@ extension ServerSocketManager: UserSessionService {
 
 extension ServerSocketManager {
 
+    /// Publisher delivering remote control general commands (e.g., mute, unmute, setAudioStreamIndex).
     var generalCommands: AnyPublisher<GeneralCommand, Never> {
         commands { event in
             guard case let .message(.generalCommandMessage(message)) = event else { return nil }
@@ -234,6 +261,7 @@ extension ServerSocketManager {
         }
     }
 
+    /// Publisher delivering remote control play request commands.
     var playCommands: AnyPublisher<PlayRequest, Never> {
         commands { event in
             guard case let .message(.playMessage(message)) = event else { return nil }
@@ -241,6 +269,7 @@ extension ServerSocketManager {
         }
     }
 
+    /// Publisher delivering remote control playstate commands (e.g., play, pause, seek).
     var playstateCommands: AnyPublisher<PlaystateRequest, Never> {
         commands { event in
             guard case let .message(.playstateMessage(message)) = event else { return nil }
@@ -262,6 +291,11 @@ extension ServerSocketManager {
 
 extension ServerSocketManager {
 
+    /// Returns a publisher delivering periodic updates of active server sessions.
+    /// - Parameters:
+    ///   - delay: Initial delay before updates begin.
+    ///   - interval: Recurrence interval between session updates.
+    /// - Returns: A publisher emitting arrays of `SessionInfoDto`.
     func sessions(
         delay: Duration = .seconds(2),
         interval: Duration = .seconds(2)
@@ -272,6 +306,11 @@ extension ServerSocketManager {
         }
     }
 
+    /// Returns a publisher delivering periodic updates of server activity log entries.
+    /// - Parameters:
+    ///   - delay: Initial delay before updates begin.
+    ///   - interval: Recurrence interval between activity log updates.
+    /// - Returns: A publisher emitting arrays of `ActivityLogEntry`.
     func activityLog(
         delay: Duration = .seconds(0),
         interval: Duration = .seconds(5)
@@ -282,6 +321,11 @@ extension ServerSocketManager {
         }
     }
 
+    /// Returns a publisher delivering periodic updates of server scheduled tasks status.
+    /// - Parameters:
+    ///   - delay: Initial delay before updates begin.
+    ///   - interval: Recurrence interval between scheduled task updates.
+    /// - Returns: A publisher emitting arrays of `TaskInfo`.
     func scheduledTasks(
         delay: Duration = .seconds(0),
         interval: Duration = .seconds(5)
@@ -292,6 +336,13 @@ extension ServerSocketManager {
         }
     }
 
+    /// Internal helper creating a deferred Combine publisher for a specific socket subscription topic.
+    /// - Parameters:
+    ///   - subscription: The Jellyfin socket subscription topic.
+    ///   - delay: Initial delay duration.
+    ///   - interval: Periodic update interval.
+    ///   - extract: Closure extracting the desired payload from a session event.
+    /// - Returns: A publisher emitting extracted payloads on the main queue.
     private func publisher<Payload>(
         for subscription: JellyfinSocket.Subscription,
         delay: Duration,

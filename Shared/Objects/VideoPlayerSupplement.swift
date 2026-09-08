@@ -7,15 +7,28 @@
 //
 
 // swiftlint:disable hard_coded_display_string
+/// Identifies the supplementary content drawers and sheets available in the video player.
 enum VideoPlayerSupplement: String, CaseIterable, Displayable, Equatable, Identifiable, Storable, SystemImageable, SupportedCaseIterable {
 
+    /// Item details, synopsis, and metadata view.
     case info
+
+    /// Scene chapters navigation list.
     case chapters
+
+    /// Up Next episode playlist and queue.
     case queue
+
+    /// Playback stream statistics and session metrics.
     case playbackInformation
+
+    /// Cast and crew actor listing.
     case people
+
+    /// ContentFilter cue listing, category controls, and filter toggles.
     case contentFilter
 
+    /// Localized or user-facing display label for the supplement.
     var displayTitle: String {
         switch self {
         case .info:
@@ -34,10 +47,12 @@ enum VideoPlayerSupplement: String, CaseIterable, Displayable, Equatable, Identi
         }
     }
 
+    /// Unique string identifier matching the raw value.
     var id: String {
         rawValue
     }
 
+    /// SF Symbol icon name representing the supplement in the toolbar.
     var systemImage: String {
         switch self {
         case .info:
@@ -55,5 +70,6 @@ enum VideoPlayerSupplement: String, CaseIterable, Displayable, Equatable, Identi
         }
     }
 
+    /// The list of supplements enabled by default in user preferences.
     static let supportedCases: [VideoPlayerSupplement] = [.info, .chapters, .queue, .contentFilter]
 }

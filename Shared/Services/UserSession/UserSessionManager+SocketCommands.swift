@@ -14,6 +14,8 @@ import UIKit
 
 extension UserSessionManager {
 
+    /// Sets up observation on WebSocket remote control command streams (play, playstate, and general commands)
+    /// emitted by the current active session's ``ServerSocketManager``.
     func observeSocketCommands() {
         $currentSession
             .map { session -> AnyPublisher<PlayRequest, Never> in
@@ -52,6 +54,8 @@ extension UserSessionManager {
             .store(in: &cancellables)
     }
 
+    /// Dispatches remote control play request commands arriving from the server socket.
+    /// - Parameter playCommand: The deserialized play request from the Jellyfin server.
     @MainActor
     private func onReceive(playCommand: PlayRequest) {
         guard let currentSession else { return }
@@ -80,6 +84,12 @@ extension UserSessionManager {
         }
     }
 
+    /// Dispatches remote control playstate requests (e.g. pause, playPause, seek, rewind, fastForward).
+    ///
+    /// Incorporates ContentFilter intelligence during seek commands:
+    /// 1. Prevents unwanted fallback-to-skip seeks that would cut out spoken words when client-side muting is handling the cue.
+    /// 2. Dispatches visual skip toast indicators when a legitimate scene skip occurs.
+    /// - Parameter playstateCommand: The deserialized playstate command from the Jellyfin server.
     @MainActor
     private func onReceive(playstateCommand: PlaystateRequest) {
         guard let mediaPlayerManager else { return }
@@ -135,6 +145,11 @@ extension UserSessionManager {
         }
     }
 
+    /// Dispatches general commands from the server socket, including track selection and stream-level audio muting.
+    ///
+    /// Routes `.mute`, `.unmute`, and `.toggleMute` directly to ``MediaPlayerProxy`` to perform stream-level
+    /// audio attenuation without modifying master hardware volume.
+    /// - Parameter generalCommand: The deserialized general command from the Jellyfin server.
     @MainActor
     private func onReceive(generalCommand: GeneralCommand) {
         guard let currentSession else { return }
@@ -183,6 +198,15 @@ extension UserSessionManager {
         }
     }
 
+    /// Fetches item metadata and transitions the app into active video playback.
+    ///
+    /// If playback is already in progress, replaces the current playback item in ``MediaPlayerManager``;
+    /// otherwise, pushes a video player route to the navigation stack.
+    /// - Parameters:
+    ///   - id: The Jellyfin item identifier.
+    ///   - mediaSourceID: Optional media source identifier within the item.
+    ///   - startPositionTicks: Optional starting playback offset in ticks (10,000 ticks = 1 ms).
+    ///   - userSession: The active user session.
     @MainActor
     private func playItem(
         id: String,
@@ -225,6 +249,13 @@ extension UserSessionManager {
         }
     }
 
+    /// Fetches and plays trailers for the specified media item.
+    ///
+    /// Attempts local trailer playback first; falls back to opening external remote trailers
+    /// via YouTube deep links or browser URL.
+    /// - Parameters:
+    ///   - itemID: The media item identifier whose trailers should be played.
+    ///   - userSession: The active user session.
     @MainActor
     private func playTrailers(itemID: String, userSession: UserSession) {
         Task { @MainActor in

@@ -19,24 +19,41 @@ import TVVLCKit
 import MobileVLCKit
 #endif
 
+/// Concrete implementation of ``VideoMediaPlayerProxy`` backed by MobileVLCKit / TVVLCKit via VLCUI.
+///
+/// Provides video decoding for non-native codecs, subtitle styling, audio stream track selection,
+/// and robust stream-level audio muting with tvOS dual-attenuation (`isMuted` + zero volume).
 class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
     MediaPlayerOffsetConfigurable,
     MediaPlayerSubtitleConfigurable
 {
 
+    /// Published box indicating whether the VLC player is currently buffering data.
     let isBuffering: PublishedBox<Bool> = .init(initialValue: false)
+
+    /// Published box indicating whether the media player's audio stream is currently muted.
     let isMuted: PublishedBox<Bool> = .init(initialValue: false)
+
+    /// Published box storing the native dimensions of the video stream.
     let videoSize: PublishedBox<CGSize> = .init(initialValue: .zero)
+
+    /// Published box tracking the count of lost/dropped picture frames reported by VLC statistics.
     let droppedFrames: PublishedBox<Int> = .init(initialValue: 0)
+
+    /// Published box tracking the count of corrupted demux packets reported by VLC statistics.
     let corruptedFrames: PublishedBox<Int> = .init(initialValue: 0)
+
+    /// The underlying proxy object coordinating VLCVideoPlayer from VLCUI.
     let vlcUIProxy: VLCVideoPlayer.Proxy = .init()
 
+    /// Reflection-based accessor extracting the internal `VLCMediaPlayer` instance from `VLCVideoPlayer.Proxy`.
     private var vlcPlayer: VLCMediaPlayer? {
         Mirror(reflecting: vlcUIProxy).children.first(where: { $0.label == "mediaPlayer" })?.value as? VLCMediaPlayer
     }
 
     private var managerItemObserver: AnyCancellable?
 
+    /// Weak reference to the parent ``MediaPlayerManager`` coordinating playback.
     weak var manager: MediaPlayerManager? {
         didSet {
             for var o in observers {
@@ -61,22 +78,28 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         }
     }
 
+    /// Observers receiving playback lifecycle events (e.g., NowPlayable).
     var observers: [any MediaPlayerObserver] = [
         NowPlayableObserver(),
     ]
 
+    /// Resumes playback on the VLC engine.
     func play() {
         vlcUIProxy.play()
     }
 
+    /// Pauses active playback on the VLC engine.
     func pause() {
         vlcUIProxy.pause()
     }
 
+    /// Halts playback on the VLC engine.
     func stop() {
         vlcUIProxy.stop()
     }
 
+    /// Advances playback position forward by the specified duration, clamping to remaining runtime.
+    /// - Parameter seconds: The duration to skip forward.
     func jumpForward(_ seconds: Duration) {
         let target: Duration
 
@@ -92,14 +115,20 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         vlcUIProxy.jumpForward(target)
     }
 
+    /// Rewinds playback position backward by the specified duration.
+    /// - Parameter seconds: The duration to skip backward.
     func jumpBackward(_ seconds: Duration) {
         vlcUIProxy.jumpBackward(seconds)
     }
 
+    /// Sets the playback speed multiplier on the VLC engine.
+    /// - Parameter rate: Playback rate multiplier (e.g., 1.0 for normal speed).
     func setRate(_ rate: Float) {
         vlcUIProxy.setRate(.absolute(rate))
     }
 
+    /// Seeks playback to the specified absolute time offset.
+    /// - Parameter seconds: Target playback timestamp.
     func setSeconds(_ seconds: Duration) {
         vlcUIProxy.setSeconds(seconds)
     }
@@ -108,10 +137,18 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
     private var fadeTask: Task<Void, Never>?
 
+    /// Mutes the VLC audio stream using default smooth fading (`faded: true`).
     func mute() {
         mute(faded: true)
     }
 
+    /// Mutes the VLC player audio stream without modifying master system volume.
+    ///
+    /// Sets `audio.isMuted = true` and synchronizes with ``ContentFilterManager``.
+    /// On tvOS, additionally zeroes `audio.volume = 0` to ensure complete silence even when
+    /// certain audio output routes bypass VLC's boolean mute flag.
+    /// On other platforms, executes a rapid 40ms volume fade ramp if `faded` is true.
+    /// - Parameter faded: Whether to apply a volume ramp to avoid abrupt audio popping.
     func mute(faded: Bool) {
         fadeTask?.cancel()
         isMuted.value = true
@@ -141,10 +178,17 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         #endif
     }
 
+    /// Unmutes the VLC audio stream using default smooth fading (`faded: true`).
     func unmute() {
         unmute(faded: true)
     }
 
+    /// Unmutes the VLC player audio stream and restores audio level.
+    ///
+    /// Sets `audio.isMuted = false` and synchronizes with ``ContentFilterManager``.
+    /// On tvOS, explicitly restores `audio.volume = 100`.
+    /// On other platforms, executes a smooth 160ms volume ramp-up if `faded` is true.
+    /// - Parameter faded: Whether to apply a smooth volume ramp.
     func unmute(faded: Bool) {
         fadeTask?.cancel()
         isMuted.value = false
@@ -179,10 +223,13 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         #endif
     }
 
+    /// Toggles the audio stream mute state with smooth fading.
     func toggleMute() {
         toggleMute(faded: true)
     }
 
+    /// Toggles the audio stream mute state.
+    /// - Parameter faded: Whether to apply a volume ramp.
     func toggleMute(faded: Bool) {
         if isMuted.value {
             unmute(faded: faded)
@@ -191,32 +238,45 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         }
     }
 
+    /// Switches playback to the designated audio stream track index.
+    /// - Parameter stream: The audio media stream.
     func setAudioStream(_ stream: MediaStream) {
         vlcUIProxy.setAudioTrack(.absolute(stream.index ?? -1))
     }
 
+    /// Switches display to the designated subtitle stream track index.
+    /// - Parameter stream: The subtitle media stream.
     func setSubtitleStream(_ stream: MediaStream) {
         vlcUIProxy.setSubtitleTrack(.absolute(stream.index ?? -1))
     }
 
+    /// Adjusts aspect fill mode on the VLC video surface.
+    /// - Parameter aspectFill: `true` to scale video to fill bounds; `false` to fit aspect ratio.
     func setAspectFill(_ aspectFill: Bool) {
         vlcUIProxy.aspectFill(aspectFill ? 1 : 0)
     }
 
+    /// Adjusts the audio synchronization delay.
+    /// - Parameter seconds: Time offset to shift audio.
     func setAudioOffset(_ seconds: Duration) {
         vlcUIProxy.setAudioDelay(seconds)
     }
 
+    /// Adjusts the subtitle synchronization delay.
+    /// - Parameter seconds: Time offset to shift subtitles.
     func setSubtitleOffset(_ seconds: Duration) {
         vlcUIProxy.setSubtitleDelay(seconds)
     }
 
+    /// Applies custom font, size, and color styling to VLC subtitles.
+    /// - Parameter configuration: User-configured subtitle appearance settings.
     func setSubtitleConfiguration(_ configuration: SubtitleConfiguration) {
         vlcUIProxy.setSubtitleColor(.absolute(configuration.color.uiColor))
         vlcUIProxy.setSubtitleFont(configuration.fontName)
         vlcUIProxy.setSubtitleSize(.absolute(25 - configuration.size))
     }
 
+    /// The SwiftUI view embedding the VLC video player canvas.
     @ViewBuilder
     var videoPlayerBody: some View {
         VLCPlayerView()
@@ -226,6 +286,7 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
 extension VLCMediaPlayerProxy {
 
+    /// SwiftUI view hosting the VLC video player canvas and bridging playback events to ``MediaPlayerManager``.
     struct VLCPlayerView: View {
 
         @Default(.VideoPlayer.Subtitle.configuration)
@@ -242,6 +303,11 @@ extension VLCMediaPlayerProxy {
             containerState.isScrubbing
         }
 
+        /// Generates a VLC player configuration for the specified media item.
+        ///
+        /// Configures initial seek offset, stream URLs, audio track indices, subtitle styling, and sidecar subtitles.
+        /// - Parameter item: The media player item to configure for playback.
+        /// - Returns: A fully initialized VLC player configuration struct.
         private func vlcConfiguration(for item: MediaPlayerItem) -> VLCVideoPlayer.Configuration {
             let baseItem = item.baseItem
             let mediaSource = item.mediaSource

@@ -8,9 +8,16 @@
 
 import SwiftUI
 
+/// Transient floating badge displayed in the upper-right corner of the video player when a visual scene skip occurs.
+///
+/// Features an orange fast-forward symbol, frosted-glass background, and the skip category/reason.
+/// Automatically dismisses after 2.6 seconds.
 struct ContentFilterSkipBadge: View {
 
+    /// Whether the scene skip badge should be visible.
     let isSkipping: Bool
+
+    /// The category or descriptive reason for the scene skip (e.g. \"Violence\", \"Nudity\").
     let reason: String?
 
     var body: some View {

@@ -8,9 +8,16 @@
 
 import SwiftUI
 
+/// Floating pill badge displayed in the upper-right corner of the video player when audio is actively muted.
+///
+/// Features frosted-glass ultra-thin material styling, a yellow speaker-slash symbol,
+/// and automatically masked reason text (e.g. `MUTED (f***)`).
 struct ContentFilterMuteBadge: View {
 
+    /// Whether the mute indicator should be rendered on screen.
     let isMuted: Bool
+
+    /// Optional descriptive reason or dialogue phrase for the mute cue.
     let cueDescription: String?
 
     var body: some View {

@@ -396,6 +396,7 @@ extension [MediaStream] {
         contains { $0.type == .subtitle }
     }
 
+    /// Returns the first subtitle stream marked or tagged as filtered/clean, if present.
     var filteredSubtitleStream: MediaStream? {
         first(where: \.isFilteredSubtitle)
     }
@@ -403,6 +404,10 @@ extension [MediaStream] {
 
 extension MediaStream {
 
+    /// Indicates whether this media stream is a filtered or clean dialogue subtitle track.
+    ///
+    /// Evaluates `type == .subtitle` and inspects `title`, `displayTitle`, `comment`, and file `path`
+    /// for substrings matching "filtered" or "clean".
     var isFilteredSubtitle: Bool {
         guard type == .subtitle else { return false }
         if let title = title?.lowercased(), title.contains("filtered") || title.contains("clean") {

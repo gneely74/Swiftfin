@@ -8,8 +8,15 @@
 
 import Foundation
 
+/// Utility engine that redacts profanity, vulgarity, and offensive terms from text strings,
+/// replacing all but the initial letter with asterisks (e.g. `"fuck"` -> `"f***"`).
+///
+/// Operates on cue descriptions in the supplement drawer and on subtitle overlays to ensure
+/// no unmasked profanity is ever displayed to viewers.
 enum ContentFilterWordMasker {
 
+    /// Multi-word phrases that must be evaluated first to ensure longer compound matches
+    /// take precedence over individual word tokens.
     private static let profanityPhrases: [String] = [
         "son of a bitch",
         "mother fucker",
@@ -20,6 +27,7 @@ enum ContentFilterWordMasker {
         "jesus christ"
     ]
 
+    /// Lexicon of root profanities, vulgarities, slurs, and their grammatical inflections.
     private static let profanityWords: [String] = [
         // General profanity
         "ass", "asses", "asshole", "assholes", "bastard", "bastards",
@@ -42,6 +50,8 @@ enum ContentFilterWordMasker {
         "tits", "titties", "vagina", "penis", "dildo"
     ]
 
+    /// Precompiled, case-insensitive regular expressions with word boundary assertions (`\\b`)
+    /// for fast text scanning. Multi-word phrases are ordered ahead of single words.
     private static let compiledRegexes: [NSRegularExpression] = {
         var expressions: [NSRegularExpression] = []
 
@@ -64,8 +74,15 @@ enum ContentFilterWordMasker {
         return expressions
     }()
 
-    /// Masks a word preserving its first character and replacing remaining characters with asterisks.
-    /// Example: "fuck" -> "f***", "bastard" -> "b******", "son of a bitch" -> "s** o* a b****"
+    /// Masks an individual word by preserving its initial character and replacing all remaining characters with asterisks.
+    ///
+    /// Examples:
+    /// - `"fuck"` -> `"f***"`
+    /// - `"bastard"` -> `"b******"`
+    /// - `"son of a bitch"` -> `"s** o* a b****"`
+    ///
+    /// - Parameter word: The target string token to mask.
+    /// - Returns: The masked string with identical length and preserved initial letter.
     static func maskWord(_ word: String) -> String {
         guard word.count > 1 else { return word }
         let words = word.components(separatedBy: " ")
@@ -77,7 +94,12 @@ enum ContentFilterWordMasker {
         return "\(first)\(asterisks)"
     }
 
-    /// Redacts all profanity and explicit words from the input text leaving the first letter of each word.
+    /// Scans an input string and redacts all instances of profanities and slurs using word boundary regular expressions.
+    ///
+    /// Preserves existing spacing, punctuation, and non-offensive text intact.
+    ///
+    /// - Parameter text: The raw text string to sanitize (or `nil`).
+    /// - Returns: Sanitized string with all offensive tokens masked, or an empty string if `text` was `nil`/empty.
     static func mask(_ text: String?) -> String {
         guard let text, !text.isEmpty else { return "" }
         var result = text

@@ -8,12 +8,29 @@
 
 import Foundation
 
+/// Top-level response container returned by the Jellyfin ContentFilter server endpoint
+/// (`GET /ContentFilter/filters/{itemId}`).
+///
+/// Encapsulates metadata about the media item (title, year, IMDb URL) and an array
+/// of all parsed filtering cues (`cues`).
+///
+/// - Note: Supports resilient JSON decoding for both camelCase and PascalCase keys to maintain
+///   backward and forward compatibility across varying Jellyfin server plugin versions.
 struct ContentFilterResponse: Codable, Equatable {
+
+    /// The display title of the media item associated with this filter.
     let title: String?
+
+    /// The release year of the media item (decoded as a string, tolerating numeric or string JSON values).
     let year: String?
+
+    /// Optional web reference link to the IMDb title page.
     let imdbUrl: String?
+
+    /// The collection of individual audio mute and visual scene skip cues.
     let cues: [ContentFilterCue]
 
+    /// Resilient coding keys accommodating both PascalCase and camelCase property names from the server.
     private enum CodingKeys: String, CodingKey {
         case title
         case Title
@@ -26,6 +43,13 @@ struct ContentFilterResponse: Codable, Equatable {
         case Cues
     }
 
+    /// Initializes a new content filter response container.
+    ///
+    /// - Parameters:
+    ///   - title: Optional title of the media item.
+    ///   - year: Optional release year.
+    ///   - imdbUrl: Optional IMDb URL.
+    ///   - cues: Array of `ContentFilterCue` objects. Defaults to empty.
     init(title: String? = nil, year: String? = nil, imdbUrl: String? = nil, cues: [ContentFilterCue] = []) {
         self.title = title
         self.year = year
@@ -33,6 +57,10 @@ struct ContentFilterResponse: Codable, Equatable {
         self.cues = cues
     }
 
+    /// Decodes a `ContentFilterResponse` with resilient fallback handling for varying key casing and type representations.
+    ///
+    /// - Parameter decoder: The decoder to read data from.
+    /// - Throws: `DecodingError` if the underlying JSON container cannot be parsed.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
@@ -62,6 +90,10 @@ struct ContentFilterResponse: Codable, Equatable {
             ?? []
     }
 
+    /// Encodes this response container to an external representation using canonical camelCase keys.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
+    /// - Throws: `EncodingError` if encoding fails.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(title, forKey: .title)
@@ -71,20 +103,45 @@ struct ContentFilterResponse: Codable, Equatable {
     }
 }
 
+/// Represents an individual content filter cue specifying a time interval, target channel, and action.
+///
+/// A cue dictates either an **audio mute** (e.g. silencing profanity or crude dialogue) or a **scene skip**
+/// (e.g. jumping over graphic violence, gore, or nudity).
 struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
+
+    /// Unique identifier key for this cue.
     let key: String
+
+    /// Raw start timestamp string as provided by the server (e.g. "00:01:23.450" or "83.45").
     let start: String
+
+    /// Raw end timestamp string as provided by the server.
     let end: String
+
+    /// Human-readable description, dialogue transcript, or profanity text associated with this cue.
     let description: String?
+
+    /// Category classification (e.g. "Language", "Profanity", "Violence", "Nudity", "General").
     let category: String
+
+    /// Media channel targeted by this cue ("audio", "video", or "both").
     let channel: String
+
+    /// Action requested by this cue ("mute", "skip", or custom action).
     let action: String
+
+    /// Whether this cue is actively enabled for filtering evaluation.
     let enabled: Bool
 
+    /// Identifiable protocol conformance returning `key`.
     var id: String {
         key
     }
 
+    /// Determines whether this cue represents an audio mute action.
+    ///
+    /// - Returns: `true` if the action is explicitly "mute", if it is an audio-channel "skip",
+    ///   or if the category is classified as "Language" or "Profanity".
     var isMute: Bool {
         action.caseInsensitiveCompare("mute") == .orderedSame ||
             (action.caseInsensitiveCompare("skip") == .orderedSame && channel.caseInsensitiveCompare("audio") == .orderedSame) ||
@@ -92,32 +149,42 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
             category.localizedCaseInsensitiveContains("Profanity")
     }
 
+    /// Determines whether this cue represents a visual scene skip action.
+    ///
+    /// - Returns: `true` if the action is "skip", the channel is not strictly audio-only,
+    ///   and the category is not language/profanity related.
     var isSkip: Bool {
         (action.caseInsensitiveCompare("skip") == .orderedSame && channel.caseInsensitiveCompare("audio") != .orderedSame) &&
             !category.localizedCaseInsensitiveContains("Language") &&
             !category.localizedCaseInsensitiveContains("Profanity")
     }
 
+    /// Parsed start time of the cue converted to floating-point seconds.
     var startSeconds: Double {
         Self.parseTimestamp(start)
     }
 
+    /// Parsed end time of the cue converted to floating-point seconds.
     var endSeconds: Double {
         Self.parseTimestamp(end)
     }
 
+    /// Start time represented as a native Swift `Duration`.
     var startDuration: Duration {
         .seconds(startSeconds)
     }
 
+    /// End time represented as a native Swift `Duration`.
     var endDuration: Duration {
         .seconds(endSeconds)
     }
 
+    /// Total span of the cue as a native Swift `Duration`.
     var duration: Duration {
         .seconds(max(0, endSeconds - startSeconds))
     }
 
+    /// Case-resilient coding keys supporting various JSON naming conventions.
     private enum CodingKeys: String, CodingKey {
         case key
         case Key
@@ -140,6 +207,17 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
         case Enabled
     }
 
+    /// Initializes a new content filter cue.
+    ///
+    /// - Parameters:
+    ///   - key: Unique cue identifier string.
+    ///   - start: Start timestamp string.
+    ///   - end: End timestamp string.
+    ///   - description: Optional descriptive text or dialogue snippet.
+    ///   - category: Category classification. Defaults to "General".
+    ///   - channel: Target channel ("both", "audio", "video"). Defaults to "both".
+    ///   - action: Action to perform ("mute", "skip"). Defaults to "mute".
+    ///   - enabled: Whether the cue is active. Defaults to `true`.
     init(
         key: String,
         start: String,
@@ -160,6 +238,10 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
         self.enabled = enabled
     }
 
+    /// Decodes a `ContentFilterCue` with fallback strategies for multiple timestamp formats and key variations.
+    ///
+    /// - Parameter decoder: The decoder to read data from.
+    /// - Throws: `DecodingError` if decoding cannot proceed.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
@@ -214,6 +296,10 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
             ?? true
     }
 
+    /// Encodes this cue using canonical camelCase keys.
+    ///
+    /// - Parameter encoder: The encoder to write data to.
+    /// - Throws: `EncodingError` if encoding fails.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(key, forKey: .key)
@@ -226,6 +312,15 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
         try container.encode(enabled, forKey: .enabled)
     }
 
+    /// Parses a timestamp string into total seconds as a `Double`.
+    ///
+    /// Supports the following formats:
+    /// - Pure decimal seconds: `"123.456"` -> `123.456`
+    /// - Full standard timecode: `"01:23:45,678"` or `"01:23:45.678"` -> `5025.678`
+    /// - Minute:second timecode: `"23:45.678"` -> `1425.678`
+    ///
+    /// - Parameter timestamp: The raw string representation of the timestamp.
+    /// - Returns: Total elapsed time in seconds, or `0` if parsing fails.
     static func parseTimestamp(_ timestamp: String) -> Double {
         let trimmed = timestamp.trimmingCharacters(in: .whitespacesAndNewlines)
         if let pureSeconds = Double(trimmed) {

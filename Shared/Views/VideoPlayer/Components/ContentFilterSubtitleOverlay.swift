@@ -8,8 +8,13 @@
 
 import SwiftUI
 
+/// High-contrast dialogue subtitle overlay displayed near the bottom of the video player during audio mutes.
+///
+/// Features an opaque solid black background that occludes underlying burned-in or native subtitles,
+/// ensuring offensive words are masked on screen without altering or desyncing the user's active subtitle track.
 struct ContentFilterSubtitleOverlay: View {
 
+    /// The sanitized dialogue text to render, or `nil` if no dialogue is currently spoken.
     let text: String?
 
     var body: some View {

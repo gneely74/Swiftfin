@@ -11,28 +11,45 @@ import SwiftUI
 
 extension VideoPlayer {
 
+    /// The tvOS video player playback controls overlay.
+    ///
+    /// Manages the bottom toolbar, timeline progress bar, focus transitions, Siri Remote press event routing,
+    /// and auto-dismiss timer poking when playback resumes.
     struct PlaybackControls: View {
 
+        /// The configured interval for skipping backward.
         @Default(.VideoPlayer.jumpBackwardInterval)
         var jumpBackwardInterval
+
+        /// The configured interval for skipping forward.
         @Default(.VideoPlayer.jumpForwardInterval)
         var jumpForwardInterval
 
+        /// Shared player container state managing HUD visibility and timers.
         @EnvironmentObject
         var containerState: VideoPlayerContainerState
+
+        /// Active media player manager instance coordinating playback.
         @EnvironmentObject
         var manager: MediaPlayerManager
 
+        /// Toast proxy for displaying transient status alerts.
         @Toaster
         var toaster: ToastProxy
 
+        /// Focus state binding indicating whether focus is currently on the progress bar.
         @FocusState
         private var isPlaybackProgressFocused: Bool
 
+        /// Timer driving accelerated scrubbing during long click-and-hold gestures.
         @State
         var speedBoostTimer: Timer?
+
+        /// Whether accelerated speed-boosted scrubbing is active.
         @State
         var isSpeedBoosting: Bool = false
+
+        /// Queued work item for debounced jump/seek commands.
         @State
         var pendingJumpWork: DispatchWorkItem?
 

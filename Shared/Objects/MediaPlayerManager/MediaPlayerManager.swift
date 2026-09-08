@@ -151,9 +151,13 @@ final class MediaPlayerManager: ViewModel {
     @Published
     var supplements: [any MediaPlayerSupplement] = []
 
+    /// Manager handling ContentFilter cue loading, evaluation clock, audio muting, scene skipping, and subtitle masking.
     let contentFilterManager: ContentFilterManager = .init()
 
     // TODO: replace with graph dependency package
+    /// Builds the list of available supplements for the current playback item.
+    ///
+    /// Conditionally injects ``ContentFilterSupplement`` whenever content filter cues are available.
     private func setSupplements() {
         var newSupplements = Defaults[.VideoPlayer.supplements].compactMap { kind -> (any MediaPlayerSupplement)? in
             switch kind {
@@ -190,6 +194,10 @@ final class MediaPlayerManager: ViewModel {
     /// The current seconds media playback is set to.
     let secondsBox: PublishedBox<Duration> = .init(initialValue: .zero)
 
+    /// The current playback timestamp as a `Duration`.
+    ///
+    /// Setting this updates `secondsBox`, forwards the timestamp to ``contentFilterManager/updateCurrentTime(_:)``,
+    /// and synchronizes the proxy's mute state if ContentFilter is not currently muting.
     var seconds: Duration {
         get { secondsBox.value }
         set {

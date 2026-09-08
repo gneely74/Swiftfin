@@ -47,6 +47,7 @@ Use the TestFlight version to test new features and bug fixes before being publi
 
 Swiftfin provides detailed documentation to help you understand key aspects of the app and its development approach:
 
+- [🛡️ ContentFilter Architecture](Documentation/contentfilter.md) — Architectural overview, modified files, and testing details for ContentFilter integration.
 - [🎞️ Library Support](https://github.com/jellyfin/Swiftfin/blob/main/Documentation/libraries.md) — Information on **library compatibility** and supported media types in Swiftin.
 - [🎬 Media Playback](https://github.com/jellyfin/Swiftfin/blob/main/Documentation/players.md) — Learn about Swiftfin's **Native** and **Swiftfin** players and how their features vary.
 - [🧩 OS Version Support](https://github.com/jellyfin/Swiftfin/blob/main/Documentation/version.md) — Read about how we determine the **minimum supported OS** and which versions of iOS & tvOS are supported.

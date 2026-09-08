@@ -14,7 +14,7 @@ class PokeIntervalTimer: ObservableObject, Publisher {
     typealias Output = Void
     typealias Failure = Never
 
-    private let defaultInterval: TimeInterval
+    var defaultInterval: TimeInterval
     private var delaySubject: PassthroughSubject<Void, Never> = .init()
     private var delayedWorkItem: DispatchWorkItem?
 

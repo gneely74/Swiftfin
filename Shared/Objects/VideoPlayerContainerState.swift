@@ -78,8 +78,12 @@ class VideoPlayerContainerState: ObservableObject {
             setPlaybackControlsVisibility()
             presentationControllerShouldDismiss = isPresentingOverlay && !isPresentingSupplement
 
-            if isPresentingOverlay, !isPresentingSupplement {
-                timer.poke()
+            if isPresentingOverlay {
+                if !isPresentingSupplement || UIDevice.isTV {
+                    timer.poke()
+                }
+            } else {
+                timer.stop()
             }
         }
     }
@@ -91,9 +95,15 @@ class VideoPlayerContainerState: ObservableObject {
             presentationControllerShouldDismiss = isPresentingOverlay && !isPresentingSupplement
 
             if isPresentingSupplement {
-                timer.stop()
+                if UIDevice.isTV {
+                    timer.defaultInterval = 15
+                    timer.poke()
+                } else {
+                    timer.stop()
+                }
             } else {
                 isGuestSupplement = false
+                timer.defaultInterval = UIDevice.isTV ? 10 : 5
                 timer.poke()
             }
         }
@@ -197,9 +207,17 @@ class VideoPlayerContainerState: ObservableObject {
             }
 
             guard !isScrubbing,
-                  !isPresentingSupplement,
                   !isPresentingMenu,
                   manager?.playbackRequestStatus != .paused else { return }
+
+            if isPresentingSupplement {
+                guard UIDevice.isTV else { return }
+
+                select(supplement: nil)
+                #if os(tvOS)
+                isProgressBarFocused = true
+                #endif
+            }
 
             withAnimation(.linear(duration: 0.25)) {
                 self.isPresentingOverlay = false

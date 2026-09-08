@@ -78,6 +78,8 @@ extension VideoPlayer {
             .onChange(of: manager.playbackRequestStatus) {
                 if manager.playbackRequestStatus == .paused, !containerState.isPresentingOverlay {
                     containerState.isPresentingOverlay = true
+                } else if manager.playbackRequestStatus == .playing, containerState.isPresentingOverlay {
+                    containerState.timer.poke()
                 }
             }
             .onReceive(containerState.containerView?.onPressEvent ?? .init()) { press in

@@ -110,12 +110,13 @@ class VideoPlayerContainerState: ObservableObject {
             presentationControllerShouldDismiss = isPresentingOverlay && !isPresentingSupplement
 
             if isPresentingSupplement {
-                if UIDevice.isTV {
-                    timer.defaultInterval = 15
-                    timer.poke()
-                } else {
-                    timer.stop()
-                }
+                #if os(tvOS)
+                isProgressBarFocused = false
+                timer.defaultInterval = 15
+                timer.poke()
+                #else
+                timer.stop()
+                #endif
             } else {
                 isGuestSupplement = false
                 timer.defaultInterval = UIDevice.isTV ? 10 : 5
@@ -253,14 +254,12 @@ class VideoPlayerContainerState: ObservableObject {
                   !isPresentingMenu,
                   manager?.playbackRequestStatus != .paused else { return }
 
+            #if os(tvOS)
             if isPresentingSupplement {
-                guard UIDevice.isTV else { return }
-
                 select(supplement: nil)
-                #if os(tvOS)
-                isProgressBarFocused = true
-                #endif
             }
+            isProgressBarFocused = false
+            #endif
 
             withAnimation(.linear(duration: 0.25)) {
                 self.isPresentingOverlay = false

@@ -653,12 +653,15 @@ extension VideoPlayer {
             gesture.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
             view.addGestureRecognizer(gesture)
 
-            containerState.$isPresentingOverlay
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] isPresenting in
-                    self?.supplementContainerView.isUserInteractionEnabled = isPresenting
-                }
-                .store(in: &cancellables)
+            Publishers.CombineLatest(
+                containerState.$isPresentingOverlay,
+                containerState.$isPresentingSupplement
+            )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isPresenting, isSupplement in
+                self?.supplementContainerView.isUserInteractionEnabled = isPresenting || isSupplement
+            }
+            .store(in: &cancellables)
             #endif
         }
 
@@ -857,11 +860,14 @@ extension VideoPlayer {
                 case .playPause, .menu:
                     continue
                 case .select:
-                    if containerState.isPresentingOverlay, !containerState.isProgressBarFocused, !containerState.isScrubbing {
+                    if containerState.isPresentingOverlay,
+                       !containerState.isProgressBarFocused || containerState.isPresentingSupplement,
+                       !containerState.isScrubbing
+                    {
                         super.pressesBegan([press], with: event)
                     }
                 case .leftArrow, .rightArrow:
-                    if containerState.isProgressBarFocused {
+                    if containerState.isProgressBarFocused && !containerState.isPresentingSupplement {
                         let defaultAction: () -> Void = { [weak self] in
                             guard let self else { return }
                             self.forwardPressesBegan([press], event: event)
@@ -893,7 +899,7 @@ extension VideoPlayer {
                 case .menu:
                     handleMenuEnded()
                 case .leftArrow, .rightArrow:
-                    if containerState.isProgressBarFocused {
+                    if containerState.isProgressBarFocused && !containerState.isPresentingSupplement {
                         let defaultAction: () -> Void = { [weak self] in
                             guard let self else { return }
                             self.forwardPressesEnded([press], event: event)
@@ -949,7 +955,7 @@ extension VideoPlayer {
             if containerState.isScrubbing {
                 containerState.commitScrub()
                 containerState.timer.poke()
-            } else if containerState.isProgressBarFocused {
+            } else if containerState.isProgressBarFocused && !containerState.isPresentingSupplement {
                 switch manager.playbackRequestStatus {
                 case .playing:
                     manager.setPlaybackRequestStatus(status: .paused)

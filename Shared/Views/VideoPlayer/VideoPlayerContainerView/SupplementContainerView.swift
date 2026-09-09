@@ -63,11 +63,13 @@ extension VideoPlayer.UIVideoPlayerContainerViewController {
         }
         #endif
 
+        /// Calculates the default focus target element for the supplement tab bar.
+        ///
+        /// Returns a focus target only if a supplement is currently selected, preventing unprompted auto-opening
+        /// of supplement drawers on initial video playback presentation.
         private var defaultTabFocus: SupplementElement? {
-            if let id = containerState.selectedSupplement?.id {
-                return .supplementTab(id)
-            }
-            return currentSupplements.first.map { .supplementTab($0.id) }
+            guard let id = containerState.selectedSupplement?.id else { return nil }
+            return .supplementTab(id)
         }
 
         private var isTitleBarFocused: Bool {
@@ -230,12 +232,16 @@ extension VideoPlayer.UIVideoPlayerContainerViewController {
             .onChange(of: focusedElement) {
                 switch focusedElement {
                 case let .supplementTab(id):
+                    #if os(tvOS)
+                    containerState.isProgressBarFocused = false
+                    #endif
                     if containerState.selectedSupplement?.id != id,
                        let supplement = currentSupplements[id: id]
                     {
                         containerState.select(supplement: supplement)
                     }
                     containerState.isPresentingOverlay = true
+                    containerState.timer.poke()
                 case .focusBoundary:
                     containerState.select(supplement: nil)
                     containerState.isProgressBarFocused = true

@@ -59,13 +59,6 @@ struct VideoPlayerSettingsView: View {
     @Default(.VideoPlayer.Overlay.trailingTimestampType)
     private var trailingTimestampType
 
-    // MARK: - Content Filter Defaults
-
-    @Default(.ContentFilter.muteLeadPadding)
-    private var muteLeadPadding
-    @Default(.ContentFilter.muteTailPadding)
-    private var muteTailPadding
-
     @Router
     private var router
 
@@ -105,8 +98,6 @@ struct VideoPlayerSettingsView: View {
             audioSettings
 
             subtitleSettings
-
-            contentFilterSettings
         }
         .onFirstAppear {
             viewModel.refresh()
@@ -343,24 +334,4 @@ struct VideoPlayerSettingsView: View {
             Text(L10n.subtitlesDisclaimer)
         }
     }
-
-    // MARK: - Content Filter Settings
-
-    // swiftlint:disable hard_coded_display_string
-    /// Section rendering configurable ContentFilter stream muting pre-roll lead and post-roll tail padding pickers.
-    @ViewBuilder
-    private var contentFilterSettings: some View {
-        SwiftUI.Section {
-            PlatformPicker("Mute Lead Padding", selection: $muteLeadPadding)
-
-            PlatformPicker("Mute Tail Padding", selection: $muteTailPadding)
-        } header: {
-            Text("Content Filter")
-        } footer: {
-            Text(
-                "Lead padding silences audio prior to dialogue timestamps to overcome player audio pipeline latency and subtitle timing variance. Tail padding extends muting after dialogue ends."
-            )
-        }
-    }
-    // swiftlint:enable hard_coded_display_string
 }

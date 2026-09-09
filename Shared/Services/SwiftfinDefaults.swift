@@ -399,30 +399,6 @@ extension Defaults.Keys {
         }
     }
 
-    // MARK: Content Filter
-
-    /// Keys associated with ContentFilter audio muting, cue bridging, and scene skipping.
-    enum ContentFilter {
-
-        /// Pre-roll lead padding applied before audio mute cues to overcome hardware audio buffer latency
-        /// and character-ratio subtitle timing estimation variances. Defaults to 1.5 seconds.
-        static var muteLeadPadding: Key<ContentFilterMuteLeadPadding> {
-            UserKey("contentFilterMuteLeadPadding", default: .onePointFive)
-        }
-
-        /// Post-roll tail padding applied after audio mute cues to prevent clipping trailing consonant decays.
-        /// Defaults to 0.5 seconds.
-        static var muteTailPadding: Key<ContentFilterMuteTailPadding> {
-            UserKey("contentFilterMuteTailPadding", default: .pointFive)
-        }
-
-        /// Maximum gap between consecutive mute cues to coalesce into a single continuous mute interval.
-        /// Defaults to 1.5 seconds.
-        static var muteBridgeThresholdSeconds: Key<Double> {
-            UserKey("contentFilterMuteBridgeThresholdSeconds", default: 1.50)
-        }
-    }
-
     // Experimental settings
     enum Experimental {
 

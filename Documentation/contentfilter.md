@@ -9,7 +9,7 @@ This document details the modifications made to Swiftfin to integrate with the [
 - **Stream-Level Audio Muting**: Zero-latency digital stream muting for profanity and dialogue cues using `AVPlayer.isMuted` and `VLCMediaPlayer.audio.isMuted`. Hardware master TV volume remains completely untouched and video playback is uninterrupted.
 - **Dual VLC tvOS Attenuation**: Simultaneously zeroes `audio.volume = 0` and sets `audio.isMuted = true` to prevent tvOS audio hardware buffer bleed in VLCKit.
 - **High-Frequency Player Clock**: Hooks into `AVPlayer` with a 100ms periodic time observer for millisecond-accurate cue entry/exit.
-- **Plosive Lead & Tail Padding**: Applies 1.5-second lead padding (default) to suppress explosive consonants ('f', 'p', 'b') and overcome audio buffer presentation latency/subtitle estimation error, and 500ms tail padding (post-mute). Both are fully configurable under Settings -> Video Player -> Content Filter.
+- **Plosive Lead & Tail Padding**: Applies 250ms lead padding (pre-mute) to suppress explosive consonants ('f', 'p', 'b') and 200ms tail padding (post-mute).
 - **Seamless Mute Bridging**: Coalesces consecutive dialogue cues occurring within 1.5 seconds to eliminate rapid audio flutter.
 - **Masked Dialogue Subtitle Overlay**: 
   - When subtitles are off: presents clean, masked dialogue subtitles during mute cues.

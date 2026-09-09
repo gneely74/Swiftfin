@@ -7,7 +7,6 @@
 //
 
 import Combine
-import Defaults
 import Foundation
 import SwiftUI
 
@@ -16,7 +15,7 @@ import SwiftUI
 /// Running strictly on `@MainActor`, `ContentFilterManager` handles:
 /// - Pre-fetching and caching filter cues and clean subtitles from the Jellyfin server.
 /// - Evaluating high-frequency player clock ticks (100ms interval) to trigger stream-level audio mutes and video skips.
-/// - Applying pre-roll lead padding (default 1.5s) and post-roll tail padding (default 500ms) to ensure plosive sounds are silenced.
+/// - Applying pre-roll lead padding (400ms) and post-roll tail padding (300ms) to ensure plosive sounds are silenced.
 /// - Coalescing adjacent mute cues within 1.5 seconds into seamless, continuous mute intervals to eliminate audio flutter.
 /// - Managing HUD badge display states for active mutes and scene skips.
 /// - Driving the masked subtitle overlay during mute events without destructively altering user subtitle preferences.
@@ -85,28 +84,6 @@ final class ContentFilterManager: ObservableObject {
     /// Tracks whether the subtitle overlay is currently active due to an audio mute event.
     private var isTemporarilyDisplayingFilteredSubtitle: Bool = false
 
-    /// Cancellables set retaining active publisher subscriptions.
-    private var cancellables = Set<AnyCancellable>()
-
-    // MARK: - Initializer
-
-    /// Initializes a new content filter manager instance and sets up reactive observers for user preference changes.
-    init() {
-        Defaults.publisher(.ContentFilter.muteLeadPadding)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.recalculateBridgedMuteIntervals()
-            }
-            .store(in: &cancellables)
-
-        Defaults.publisher(.ContentFilter.muteTailPadding)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.recalculateBridgedMuteIntervals()
-            }
-            .store(in: &cancellables)
-    }
-
     // MARK: - Computed Properties
 
     /// Returns `true` if any content filter cues exist for the current media item.
@@ -168,27 +145,21 @@ final class ContentFilterManager: ObservableObject {
 
     // MARK: - Timing & Padding Constants
 
-    /// Pre-roll lead time (in seconds) applied before a mute cue starts (~1.5s default).
+    /// Pre-roll lead time (in seconds) applied before a mute cue starts (~400ms).
     ///
-    /// Silences audio prior to dialogue timestamps to overcome hardware audio buffer latency,
-    /// HDMI eARC transmission delays to soundbars/AVRs, and character-ratio subtitle timing estimation variances.
-    static var muteLeadSeconds: Double {
-        Defaults[.ContentFilter.muteLeadPadding].rawValue
-    }
+    /// Critical for suppressing explosive consonants and initial phonemes (e.g. \"f\", \"p\", \"b\")
+    /// which frequently lead speech timestamps.
+    static let muteLeadSeconds: Double = 0.40
 
-    /// Post-roll tail padding (in seconds) applied after a mute cue ends (~500ms default).
+    /// Post-roll tail padding (in seconds) applied after a mute cue ends (~300ms).
     ///
     /// Prevents audible trailing consonant clicks or abrupt cutoff before vocal cord vibration decays.
-    static var muteTailSeconds: Double {
-        Defaults[.ContentFilter.muteTailPadding].rawValue
-    }
+    static let muteTailSeconds: Double = 0.30
 
     /// Maximum time gap (in seconds) between two consecutive mute cues to bridge as a single contiguous mute span (~1.5s).
     ///
     /// Prevents rapid audio toggling, popping, and jarring stutter during fast back-to-back dialogue.
-    static var muteBridgeThresholdSeconds: Double {
-        Defaults[.ContentFilter.muteBridgeThresholdSeconds]
-    }
+    static let muteBridgeThresholdSeconds: Double = 1.50
 
     /// Coalesced mute time ranges incorporating lead padding, tail padding, and bridging.
     @Published

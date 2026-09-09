@@ -172,23 +172,23 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertEqual(manager.currentActiveCue?.key, "1")
         XCTAssertTrue(manager.isContentFilterMuted)
 
-        // Pre-roll lead time test: 59.8s is 200ms before cue start (60.0s) -> within 250ms lead window
-        manager.updateCurrentTime(.seconds(59.8))
+        // Pre-roll lead time test: 59.0s is 1.0s before cue start (60.0s) -> within 1.5s lead window
+        manager.updateCurrentTime(.seconds(59.0))
         XCTAssertEqual(manager.currentActiveCue?.key, "1")
         XCTAssertTrue(manager.isContentFilterMuted)
 
-        // Outside pre-roll: 59.7s is 300ms before cue start -> outside 250ms lead window
-        manager.updateCurrentTime(.seconds(59.7))
+        // Outside pre-roll: 58.0s is 2.0s before cue start -> outside 1.5s lead window
+        manager.updateCurrentTime(.seconds(58.0))
         XCTAssertNil(manager.currentActiveCue)
         XCTAssertFalse(manager.isContentFilterMuted)
 
-        // Post-roll tail padding test: 70.15s is 150ms after cue end (70.0s) -> within 200ms tail window
-        manager.updateCurrentTime(.seconds(70.15))
+        // Post-roll tail padding test: 70.3s is 300ms after cue end (70.0s) -> within 500ms tail window
+        manager.updateCurrentTime(.seconds(70.3))
         XCTAssertEqual(manager.currentActiveCue?.key, "1")
         XCTAssertTrue(manager.isContentFilterMuted)
 
-        // Outside post-roll: 70.25s is 250ms after cue end -> outside 200ms tail window
-        manager.updateCurrentTime(.seconds(70.25))
+        // Outside post-roll: 70.7s is 700ms after cue end -> outside 500ms tail window
+        manager.updateCurrentTime(.seconds(70.7))
         XCTAssertNil(manager.currentActiveCue)
         XCTAssertFalse(manager.isContentFilterMuted)
 
@@ -513,10 +513,10 @@ final class ContentFilterSocketTests: XCTestCase {
         )
         manager.cues = [cue1, cue2]
 
-        // Bridging should merge them into 1 contiguous interval: [9.6s, 15.3s]
+        // Bridging should merge them into 1 contiguous interval: [8.5s, 15.5s]
         XCTAssertEqual(manager.bridgedMuteIntervals.count, 1)
-        XCTAssertEqual(manager.bridgedMuteIntervals.first?.lowerBound ?? 0, 9.6, accuracy: 0.001)
-        XCTAssertEqual(manager.bridgedMuteIntervals.first?.upperBound ?? 0, 15.3, accuracy: 0.001)
+        XCTAssertEqual(manager.bridgedMuteIntervals.first?.lowerBound ?? 0, 8.5, accuracy: 0.001)
+        XCTAssertEqual(manager.bridgedMuteIntervals.first?.upperBound ?? 0, 15.5, accuracy: 0.001)
 
         // Inside cue 1
         manager.updateCurrentTime(.seconds(11.0))
@@ -567,9 +567,36 @@ final class ContentFilterSocketTests: XCTestCase {
         // Should NOT be merged: 2 separate intervals
         XCTAssertEqual(manager.bridgedMuteIntervals.count, 2)
 
-        // Inside the gap at 14.0s - should NOT be muted
-        manager.updateCurrentTime(.seconds(14.0))
+        // Inside the gap at 13.5s - should NOT be muted
+        manager.updateCurrentTime(.seconds(13.5))
         XCTAssertFalse(manager.isContentFilterMuted)
         XCTAssertFalse(manager.isMuted)
+    }
+
+    /// Verifies that user-customized mute lead and tail padding options dynamically adjust interval calculations.
+    @MainActor
+    func testConfigurableMutePadding() {
+        // Verify default enum values
+        XCTAssertEqual(ContentFilterMuteLeadPadding.onePointFive.rawValue, 1.50)
+        XCTAssertEqual(ContentFilterMuteTailPadding.pointFive.rawValue, 0.50)
+        XCTAssertEqual(ContentFilterMuteLeadPadding.onePointEight.rawValue, 1.80)
+
+        let manager = ContentFilterManager()
+        let cue = ContentFilterCue(
+            key: "pad_test",
+            start: "00:00:10.000",
+            end: "00:00:12.000",
+            description: "Padding test cue",
+            category: "profanity",
+            channel: "audio",
+            action: "mute",
+            enabled: true
+        )
+        manager.cues = [cue]
+
+        // Default: 1.5s lead, 0.5s tail -> [8.5, 12.5]
+        XCTAssertEqual(manager.bridgedMuteIntervals.count, 1)
+        XCTAssertEqual(manager.bridgedMuteIntervals.first?.lowerBound ?? 0, 8.5, accuracy: 0.001)
+        XCTAssertEqual(manager.bridgedMuteIntervals.first?.upperBound ?? 0, 12.5, accuracy: 0.001)
     }
 }

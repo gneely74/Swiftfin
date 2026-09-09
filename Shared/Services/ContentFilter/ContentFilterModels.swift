@@ -6,6 +6,7 @@
 // Copyright (c) 2026 Jellyfin & Jellyfin Contributors
 //
 
+import Defaults
 import Foundation
 
 /// Top-level response container returned by the Jellyfin ContentFilter server endpoint
@@ -343,5 +344,86 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
             return Double(sStr) ?? 0
         }
         return 0
+    }
+}
+
+// MARK: - Mute Timing & Padding Enums
+
+// swiftlint:disable hard_coded_display_string
+
+/// User-configurable pre-roll lead padding applied before audio mute cues.
+///
+/// Pre-roll lead padding silences the media player audio stream prior to dialogue timestamps
+/// to overcome hardware audio buffer latency, HDMI eARC transmission delays to soundbars/AVRs,
+/// and character-ratio subtitle timing estimation variances.
+enum ContentFilterMuteLeadPadding: Double, CaseIterable, Displayable, Hashable, Defaults.Serializable {
+
+    /// 0.50 seconds (500ms) of lead padding before mute cue onset.
+    case pointFive = 0.50
+
+    /// 1.00 second (1000ms) of lead padding before mute cue onset.
+    case one = 1.00
+
+    /// 1.40 seconds (1400ms) of lead padding before mute cue onset.
+    case onePointFour = 1.40
+
+    /// 1.50 seconds (1500ms) of lead padding before mute cue onset (Default).
+    case onePointFive = 1.50
+
+    /// 1.80 seconds (1800ms) of lead padding before mute cue onset (matches server plugin remote mute lead).
+    case onePointEight = 1.80
+
+    /// 2.00 seconds (2000ms) of lead padding before mute cue onset.
+    case two = 2.00
+
+    /// Human-readable localized title displayed in settings pickers on iOS and tvOS.
+    var displayTitle: String {
+        switch self {
+        case .pointFive:
+            "0.5 seconds"
+        case .one:
+            "1.0 second"
+        case .onePointFour:
+            "1.4 seconds"
+        case .onePointFive:
+            "1.5 seconds (Default)"
+        case .onePointEight:
+            "1.8 seconds"
+        case .two:
+            "2.0 seconds"
+        }
+    }
+}
+
+/// User-configurable post-roll tail padding applied after audio mute cues.
+///
+/// Extends stream muting after dialogue timestamps to prevent clipping trailing consonant decays,
+/// plosive releases, or room reverberation.
+enum ContentFilterMuteTailPadding: Double, CaseIterable, Displayable, Hashable, Defaults.Serializable {
+
+    /// 0.30 seconds (300ms) of tail padding after mute cue completion.
+    case pointThree = 0.30
+
+    /// 0.50 seconds (500ms) of tail padding after mute cue completion (Default).
+    case pointFive = 0.50
+
+    /// 0.80 seconds (800ms) of tail padding after mute cue completion.
+    case pointEight = 0.80
+
+    /// 1.00 second (1000ms) of tail padding after mute cue completion.
+    case one = 1.00
+
+    /// Human-readable localized title displayed in settings pickers on iOS and tvOS.
+    var displayTitle: String {
+        switch self {
+        case .pointThree:
+            "0.3 seconds"
+        case .pointFive:
+            "0.5 seconds (Default)"
+        case .pointEight:
+            "0.8 seconds"
+        case .one:
+            "1.0 second"
+        }
     }
 }

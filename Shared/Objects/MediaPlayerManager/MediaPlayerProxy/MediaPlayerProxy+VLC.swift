@@ -10,6 +10,7 @@ import Combine
 import Defaults
 import Foundation
 import JellyfinAPI
+import QuartzCore
 import SwiftUI
 import VLCUI
 
@@ -22,7 +23,8 @@ import MobileVLCKit
 /// Concrete implementation of ``VideoMediaPlayerProxy`` backed by MobileVLCKit / TVVLCKit via VLCUI.
 ///
 /// Provides video decoding for non-native codecs, subtitle styling, audio stream track selection,
-/// and robust stream-level audio muting with tvOS dual-attenuation (`isMuted` + zero volume).
+/// 50ms monotonic clock interpolation between VLC's coarse ~300ms time events, and stream-level
+/// audio muting with smooth micro-ramps and tvOS dual-attenuation (`isMuted` + zero volume).
 class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
     MediaPlayerOffsetConfigurable,
     MediaPlayerSubtitleConfigurable
@@ -53,6 +55,18 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
     private var managerItemObserver: AnyCancellable?
 
+    /// High-frequency (50ms) timer subscription driving monotonic clock interpolation between VLC's ~300ms time events.
+    private var interpolationTimer: AnyCancellable?
+
+    /// Last playback position (in seconds) explicitly reported by `VLCMediaPlayerDelegate.mediaPlayerTimeChanged`.
+    private var lastReportedVlcSeconds: Double = 0
+
+    /// Monotonic system timestamp (`CACurrentMediaTime()`) when `lastReportedVlcSeconds` was recorded.
+    private var lastVlcUpdateTimestamp: TimeInterval = 0
+
+    /// Tracks whether the VLC engine is currently in the `.playing` state for clock interpolation.
+    private var isVlcActivelyPlaying: Bool = false
+
     /// Weak reference to the parent ``MediaPlayerManager`` coordinating playback.
     weak var manager: MediaPlayerManager? {
         didSet {
@@ -66,6 +80,8 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
                         guard let self, item != nil else { return }
                         self.fadeTask?.cancel()
                         self.fadeTask = nil
+                        self.lastReportedVlcSeconds = 0
+                        self.lastVlcUpdateTimestamp = 0
                         self.isMuted.value = false
                         if let audio = self.vlcPlayer?.audio {
                             audio.isMuted = false
@@ -74,6 +90,7 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
                     }
             } else {
                 managerItemObserver?.cancel()
+                stopClockInterpolation()
             }
         }
     }
@@ -83,18 +100,70 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         NowPlayableObserver(),
     ]
 
+    // MARK: - 50ms Monotonic Clock Interpolation
+
+    /// Records a fresh time anchor from VLC's native `mediaPlayerTimeChanged` delegate callback.
+    /// - Parameter seconds: The newly reported playback position in seconds.
+    func recordVlcClockAnchor(seconds: Double) {
+        lastReportedVlcSeconds = seconds
+        lastVlcUpdateTimestamp = CACurrentMediaTime()
+    }
+
+    /// Updates whether VLC is actively playing and starts or stops the 50ms monotonic clock interpolator.
+    /// - Parameter isPlaying: `true` when VLC is actively playing frames; `false` when paused, buffering, or stopped.
+    func setVlcPlayingState(_ isPlaying: Bool) {
+        isVlcActivelyPlaying = isPlaying
+        if isPlaying {
+            lastVlcUpdateTimestamp = CACurrentMediaTime()
+            startClockInterpolation()
+        } else {
+            stopClockInterpolation()
+        }
+    }
+
+    /// Starts a 50ms main-runloop timer that interpolates playback time between VLC's coarse ~300ms callbacks
+    /// and feeds ``ContentFilterManager/updateCurrentTime(_:)`` with sub-50ms accuracy.
+    private func startClockInterpolation() {
+        guard interpolationTimer == nil else { return }
+        interpolationTimer = Timer.publish(every: 0.05, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self,
+                      self.isVlcActivelyPlaying,
+                      self.lastVlcUpdateTimestamp > 0,
+                      let manager = self.manager,
+                      manager.contentFilterManager.hasCues
+                else { return }
+
+                let elapsed = (CACurrentMediaTime() - self.lastVlcUpdateTimestamp) * Double(manager.rate)
+                // Clamp interpolation to at most 450ms past the last VLC anchor so a stalled demux never runs away
+                let clampedElapsed = min(0.45, max(0.0, elapsed))
+                let interpolatedSeconds = self.lastReportedVlcSeconds + clampedElapsed
+                manager.contentFilterManager.updateCurrentTime(.seconds(interpolatedSeconds))
+            }
+    }
+
+    /// Stops and cancels the 50ms monotonic clock interpolation timer.
+    private func stopClockInterpolation() {
+        interpolationTimer?.cancel()
+        interpolationTimer = nil
+    }
+
     /// Resumes playback on the VLC engine.
     func play() {
         vlcUIProxy.play()
+        setVlcPlayingState(true)
     }
 
     /// Pauses active playback on the VLC engine.
     func pause() {
+        setVlcPlayingState(false)
         vlcUIProxy.pause()
     }
 
     /// Halts playback on the VLC engine.
     func stop() {
+        setVlcPlayingState(false)
         vlcUIProxy.stop()
     }
 
@@ -130,6 +199,7 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
     /// Seeks playback to the specified absolute time offset.
     /// - Parameter seconds: Target playback timestamp.
     func setSeconds(_ seconds: Duration) {
+        recordVlcClockAnchor(seconds: seconds.seconds)
         vlcUIProxy.setSeconds(seconds)
     }
 
@@ -144,38 +214,35 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
     /// Mutes the VLC player audio stream without modifying master system volume.
     ///
-    /// Sets `audio.isMuted = true` and synchronizes with ``ContentFilterManager``.
-    /// On tvOS, additionally zeroes `audio.volume = 0` to ensure complete silence even when
-    /// certain audio output routes bypass VLC's boolean mute flag.
-    /// On other platforms, executes a rapid 40ms volume fade ramp if `faded` is true.
-    /// - Parameter faded: Whether to apply a volume ramp to avoid abrupt audio popping.
+    /// Executes a fast 20ms volume step-down ramp before asserting `audio.isMuted = true` (and `audio.volume = 0` on tvOS)
+    /// to eliminate speaker zero-crossing pops and prevent HDMI eARC/AVR PCM stream dropouts.
+    /// - Parameter faded: Whether to apply a fast volume ramp to avoid abrupt audio popping.
     func mute(faded: Bool) {
         fadeTask?.cancel()
         isMuted.value = true
         manager?.contentFilterManager.isMuted = true
-        vlcPlayer?.audio?.isMuted = true
 
-        #if os(tvOS)
-        vlcPlayer?.audio?.volume = 0
-        #else
-        guard faded, let audio = vlcPlayer?.audio else { return }
+        guard faded, let audio = vlcPlayer?.audio else {
+            vlcPlayer?.audio?.isMuted = true
+            #if os(tvOS)
+            vlcPlayer?.audio?.volume = 0
+            #endif
+            return
+        }
 
-        let initialVolume = audio.volume > 0 ? audio.volume : 100
+        // Immediate attenuation to 30% on the calling frame to suppress leading consonant energy,
+        // followed by a 15ms step to 0 + isMuted so the DAC never clips on a non-zero crossing.
+        audio.volume = 30
         fadeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let steps = 4
-            let stepDelay: UInt64 = 10_000_000 // 10ms * 4 = ~40ms ramp
-            for step in 1 ... steps {
-                if Task.isCancelled {
-                    return
-                }
-                try? await Task.sleep(nanoseconds: stepDelay)
-                let factor = Float(steps - step) / Float(steps)
-                self.vlcPlayer?.audio?.volume = Int32(Float(initialVolume) * factor)
-            }
-            self.vlcPlayer?.audio?.volume = initialVolume
+            try? await Task.sleep(nanoseconds: 15_000_000)
+            guard !Task.isCancelled else { return }
+            self.vlcPlayer?.audio?.volume = 0
+            self.vlcPlayer?.audio?.isMuted = true
+            #if !os(tvOS)
+            self.vlcPlayer?.audio?.volume = 100
+            #endif
         }
-        #endif
     }
 
     /// Unmutes the VLC audio stream using default smooth fading (`faded: true`).
@@ -183,44 +250,33 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
         unmute(faded: true)
     }
 
-    /// Unmutes the VLC player audio stream and restores audio level.
+    /// Unmutes the VLC player audio stream and smoothly restores audio level.
     ///
-    /// Sets `audio.isMuted = false` and synchronizes with ``ContentFilterManager``.
-    /// On tvOS, explicitly restores `audio.volume = 100`.
-    /// On other platforms, executes a smooth 160ms volume ramp-up if `faded` is true.
+    /// Releases `audio.isMuted = false` at an ambient floor (`volume = 15`) and ramps to `100`
+    /// over 60ms so surround/stereo tracks fade back in naturally without speaker pops.
     /// - Parameter faded: Whether to apply a smooth volume ramp.
     func unmute(faded: Bool) {
         fadeTask?.cancel()
         isMuted.value = false
         manager?.contentFilterManager.isMuted = false
 
-        #if os(tvOS)
-        vlcPlayer?.audio?.isMuted = false
-        vlcPlayer?.audio?.volume = 100
-        #else
         guard faded, let audio = vlcPlayer?.audio else {
             vlcPlayer?.audio?.isMuted = false
             vlcPlayer?.audio?.volume = 100
             return
         }
 
-        audio.volume = 0
+        audio.volume = 15
         audio.isMuted = false
         fadeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let steps = 8
-            let stepDelay: UInt64 = 20_000_000 // ~160ms ramp
-            for step in 1 ... steps {
-                if Task.isCancelled {
-                    return
-                }
-                try? await Task.sleep(nanoseconds: stepDelay)
-                let factor = Float(step) / Float(steps)
-                self.vlcPlayer?.audio?.volume = Int32(100 * factor)
+            let levels: [Int32] = [45, 75, 100]
+            for level in levels {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                guard !Task.isCancelled else { return }
+                self.vlcPlayer?.audio?.volume = level
             }
-            self.vlcPlayer?.audio?.volume = 100
         }
-        #endif
     }
 
     /// Toggles the audio stream mute state with smooth fading.
@@ -355,6 +411,10 @@ extension VLCMediaPlayerProxy {
                             containerState.scrubbedSeconds.value = newSeconds
                         }
 
+                        if let vlcProxy = manager.proxy as? VLCMediaPlayerProxy {
+                            vlcProxy.recordVlcClockAnchor(seconds: newSeconds.seconds)
+                        }
+
                         manager.seconds = newSeconds
 
                         if let proxy = manager.proxy as? any VideoMediaPlayerProxy {
@@ -365,6 +425,10 @@ extension VLCMediaPlayerProxy {
                     }
                     .onStateUpdated { state, info in
                         manager.logger.trace("VLC state updated: \(state)")
+
+                        if let vlcProxy = manager.proxy as? VLCMediaPlayerProxy {
+                            vlcProxy.setVlcPlayingState(state == .playing)
+                        }
 
                         switch state {
                         case .buffering,

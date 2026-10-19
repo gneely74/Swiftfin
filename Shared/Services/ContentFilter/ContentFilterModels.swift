@@ -131,7 +131,7 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
     let action: String
 
     /// Whether this cue is actively enabled for filtering evaluation.
-    let enabled: Bool
+    var enabled: Bool
 
     /// Identifiable protocol conformance returning `key`.
     var id: String {

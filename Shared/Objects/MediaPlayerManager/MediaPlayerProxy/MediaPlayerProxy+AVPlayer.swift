@@ -58,6 +58,13 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
     private var statusObserver: NSKeyValueObservation!
     private var timeControlStatusObserver: NSKeyValueObservation!
     private var timeObserver: Any!
+
+    /// Boundary time observer token registered on `AVPlayer` for exact millisecond mute/unmute transitions.
+    private var boundaryTimeObserver: Any?
+
+    /// Combine cancellable observing changes to ``ContentFilterManager/bridgedMuteIntervals``.
+    private var muteIntervalsObserver: AnyCancellable?
+
     private var managerItemObserver: AnyCancellable?
     private var managerStateObserver: AnyCancellable?
 
@@ -84,9 +91,16 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
                         default: break
                         }
                     }
+
+                muteIntervalsObserver = manager.contentFilterManager.$bridgedMuteIntervals
+                    .sink { [weak self] intervals in
+                        self?.registerMuteBoundaryObservers(for: intervals)
+                    }
             } else {
                 managerItemObserver?.cancel()
                 managerStateObserver?.cancel()
+                muteIntervalsObserver?.cancel()
+                removeMuteBoundaryObservers()
             }
         }
     }
@@ -96,13 +110,13 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
         NowPlayableObserver(),
     ]
 
-    /// Initializes a new AVPlayer proxy and sets up a 100ms periodic time observer on the main queue.
+    /// Initializes a new AVPlayer proxy and sets up a 50ms high-precision periodic time observer on the main queue.
     init() {
         self.player = AVPlayer()
         self.avPlayerLayer = AVPlayerLayer(player: player)
 
         timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.1, preferredTimescale: 1000),
+            forInterval: CMTime(seconds: 0.05, preferredTimescale: 1000),
             queue: .main
         ) { newTime in
             let newSeconds = Duration.seconds(newTime.seconds)
@@ -112,6 +126,40 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
             }
 
             self.manager?.seconds = newSeconds
+        }
+    }
+
+    /// Registers exact `CMTime` boundary observers on `AVPlayer` for the start and end of every coalesced mute interval.
+    /// - Parameter intervals: The coalesced mute time intervals in seconds.
+    private func registerMuteBoundaryObservers(for intervals: [ClosedRange<Double>]) {
+        removeMuteBoundaryObservers()
+        guard !intervals.isEmpty else { return }
+
+        var boundaryTimes: [NSValue] = []
+        boundaryTimes.reserveCapacity(intervals.count * 2)
+        for interval in intervals {
+            let startTime = CMTime(seconds: max(0, interval.lowerBound), preferredTimescale: 1000)
+            let endTime = CMTime(seconds: max(0, interval.upperBound + 0.02), preferredTimescale: 1000)
+            boundaryTimes.append(NSValue(time: startTime))
+            boundaryTimes.append(NSValue(time: endTime))
+        }
+
+        boundaryTimeObserver = player.addBoundaryTimeObserver(
+            forTimes: boundaryTimes,
+            queue: .main
+        ) { [weak self] in
+            guard let self else { return }
+            let currentSeconds = self.player.currentTime().seconds
+            guard currentSeconds.isFinite, currentSeconds >= 0 else { return }
+            self.manager?.contentFilterManager.updateCurrentTime(.seconds(currentSeconds))
+        }
+    }
+
+    /// Removes any previously registered `AVPlayer` boundary time observer.
+    private func removeMuteBoundaryObservers() {
+        if let boundaryTimeObserver {
+            player.removeTimeObserver(boundaryTimeObserver)
+            self.boundaryTimeObserver = nil
         }
     }
 
@@ -164,34 +212,28 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
 
     /// Mutes the AVPlayer audio stream without altering system volume.
     ///
-    /// Sets `player.isMuted = true` and synchronizes state with ``ContentFilterManager``.
-    /// On non-tvOS platforms, applies a rapid 40ms volume fade ramp if `faded` is true.
+    /// Applies an immediate attenuation step (`volume = 0.30`) on the calling frame followed by a 15ms
+    /// transition to `player.isMuted = true` so the audio hardware DAC never pops on a non-zero crossing.
     /// - Parameter faded: Whether to apply a fast volume fade ramp to eliminate popping.
     func mute(faded: Bool) {
         fadeTask?.cancel()
         isMuted.value = true
         manager?.contentFilterManager.isMuted = true
-        player.isMuted = true
 
-        #if !os(tvOS)
-        guard faded else { return }
+        guard faded else {
+            player.isMuted = true
+            return
+        }
 
-        let initialVolume = player.volume > 0 ? player.volume : 1.0
+        player.volume = 0.30
         fadeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let steps = 4
-            let stepDelay: UInt64 = 10_000_000 // 10ms * 4 = ~40ms fast ramp
-            for step in 1 ... steps {
-                if Task.isCancelled {
-                    return
-                }
-                try? await Task.sleep(nanoseconds: stepDelay)
-                let factor = Float(steps - step) / Float(steps)
-                self.player.volume = initialVolume * factor
-            }
-            self.player.volume = initialVolume
+            try? await Task.sleep(nanoseconds: 15_000_000)
+            guard !Task.isCancelled else { return }
+            self.player.volume = 0.0
+            self.player.isMuted = true
+            self.player.volume = 1.0
         }
-        #endif
     }
 
     /// Unmutes the AVPlayer audio stream using default smooth fading (`faded: true`).
@@ -199,43 +241,33 @@ class AVMediaPlayerProxy: VideoMediaPlayerProxy {
         unmute(faded: true)
     }
 
-    /// Unmutes the AVPlayer audio stream and restores audio level.
+    /// Unmutes the AVPlayer audio stream and smoothly restores audio level.
     ///
-    /// Sets `player.isMuted = false` and synchronizes state with ``ContentFilterManager``.
-    /// On non-tvOS platforms, applies a rapid 40ms volume fade-in ramp if `faded` is true.
-    /// - Parameter faded: Whether to apply a fast volume fade ramp.
+    /// Releases `player.isMuted = false` at an ambient floor (`volume = 0.15`) and ramps to `1.0`
+    /// over 60ms across both iOS and tvOS to prevent abrupt speaker pops.
+    /// - Parameter faded: Whether to apply a smooth volume fade ramp.
     func unmute(faded: Bool) {
         fadeTask?.cancel()
         isMuted.value = false
         manager?.contentFilterManager.isMuted = false
 
-        #if os(tvOS)
-        player.isMuted = false
-        player.volume = 1.0
-        #else
         guard faded else {
             player.isMuted = false
             player.volume = 1.0
             return
         }
 
-        player.volume = 0.0
+        player.volume = 0.15
         player.isMuted = false
         fadeTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let steps = 4
-            let stepDelay: UInt64 = 10_000_000 // 10ms * 4 = ~40ms fast ramp
-            for step in 1 ... steps {
-                if Task.isCancelled {
-                    return
-                }
-                try? await Task.sleep(nanoseconds: stepDelay)
-                let factor = Float(step) / Float(steps)
-                self.player.volume = factor
+            let levels: [Float] = [0.45, 0.75, 1.0]
+            for level in levels {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                guard !Task.isCancelled else { return }
+                self.player.volume = level
             }
-            self.player.volume = 1.0
         }
-        #endif
     }
 
     /// Toggles the audio stream mute state with smooth fading.
@@ -284,6 +316,7 @@ extension AVMediaPlayerProxy {
     /// Cleans up observers and pauses playback when the session has terminated.
     private func playbackStopped() {
         player.pause()
+        removeMuteBoundaryObservers()
 
         if let timeObserver {
             DispatchQueue.main.async {

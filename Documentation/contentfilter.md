@@ -7,15 +7,17 @@ This document details the modifications made to Swiftfin to integrate with the [
 ## 1. Feature Summary
 
 - **Stream-Level Audio Muting**: Zero-latency digital stream muting for profanity and dialogue cues using `AVPlayer.isMuted` and `VLCMediaPlayer.audio.isMuted`. Hardware master TV volume remains completely untouched and video playback is uninterrupted.
-- **Dual VLC tvOS Attenuation**: Simultaneously zeroes `audio.volume = 0` and sets `audio.isMuted = true` to prevent tvOS audio hardware buffer bleed in VLCKit.
-- **High-Frequency Player Clock**: Hooks into `AVPlayer` with a 100ms periodic time observer for millisecond-accurate cue entry/exit.
-- **Plosive Lead & Tail Padding**: Applies 250ms lead padding (pre-mute) to suppress explosive consonants ('f', 'p', 'b') and 200ms tail padding (post-mute).
+- **Smooth Micro-Ramps & Dual VLC tvOS Attenuation**: Applies a 15ms volume step-down ramp before asserting `isMuted = true` (and `audio.volume = 0` on tvOS) and a 60ms ambient-floor ramp-up on unmute, preventing speaker zero-crossing pops and HDMI eARC/AVR PCM stream dropouts.
+- **50ms High-Frequency Clock & Exact Boundary Observers**:
+  - `AVMediaPlayerProxy`: 50ms periodic time observer paired with `addBoundaryTimeObserver` registered at the exact `CMTime` start and end of every coalesced mute interval.
+  - `VLCMediaPlayerProxy`: 50ms monotonic clock interpolator (`CACurrentMediaTime()`) bridging VLC's coarse ~300ms `mediaPlayerTimeChanged` events for sub-50ms mute accuracy.
+- **Plosive Lead & Tail Padding**: Applies 400ms lead padding (pre-mute) to suppress explosive consonants ('f', 'p', 'b') and 300ms tail padding (post-mute) on smart clause-bounded cues.
 - **Seamless Mute Bridging**: Coalesces consecutive dialogue cues occurring within 1.5 seconds to eliminate rapid audio flutter.
-- **Masked Dialogue Subtitle Overlay**: 
+- **Masked Dialogue Subtitle Overlay**:
   - When subtitles are off: presents clean, masked dialogue subtitles during mute cues.
   - When subtitles are on: renders an opaque, high-contrast black box directly over the active subtitle track during mute cues, obscuring offensive words without overriding or desyncing user preferences.
 - **HUD & Visual Badges**: Frosted-glass `MUTED (<Reason>)` popup badge, orange `SKIPPED (<Reason>)` popup badge (auto-dismisses after 2.6s), and color-coded scrubber timeline markers.
-- **Supplement Drawer Tab**: Dedicated "Content Filter" tab with category breakdowns, cue counts, and clean non-interactive cue list with profanity masking.
+- **Interactive Supplement Drawer Tab**: Dedicated "Content Filter" tab with live session filter enable/disable bypass, `-0.5s` / `+0.5s` subtitle & cue timing sync offset controls, category filter pills, and toggleable individual cue rows with profanity masking.
 - **Supplement Drawer Auto-Dismiss (tvOS)**: 15-second inactivity timeout when playing that automatically collapses the drawer and fades out the overlay back to full-screen video. Pausing preserves the UI indefinitely.
 - **tvOS Playback Stability**: Eliminated 10Hz SwiftUI view re-render churn from sub-second timer state mutations; resolved audio/subtitle picker focus snapping.
 

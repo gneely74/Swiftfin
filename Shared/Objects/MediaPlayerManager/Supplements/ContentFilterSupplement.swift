@@ -79,16 +79,27 @@ extension ContentFilterSupplement {
         @ViewBuilder
         private var summaryHeader: some View {
             HStack(spacing: 16) {
-                Image(systemName: "shield.lefthalf.filled")
+                Image(systemName: contentFilterManager.isFilterEnabled ? "shield.lefthalf.filled" : "shield.slash")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: UIDevice.isTV ? 40 : 28, height: UIDevice.isTV ? 40 : 28)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(contentFilterManager.isFilterEnabled ? .accentColor : .secondary)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(contentFilterManager.activeFilter?.title ?? "Content Filter")
-                        .font(UIDevice.isTV ? .title3 : .headline)
-                        .fontWeight(.bold)
+                    HStack(spacing: 8) {
+                        Text(contentFilterManager.activeFilter?.title ?? "Content Filter")
+                            .font(UIDevice.isTV ? .title3 : .headline)
+                            .fontWeight(.bold)
+
+                        if !contentFilterManager.isFilterEnabled {
+                            Text("PAUSED")
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.red.opacity(0.25), in: Capsule())
+                                .foregroundColor(.red)
+                        }
+                    }
 
                     HStack(spacing: 12) {
                         Label("\(contentFilterManager.muteCount) Mutes", systemImage: "speaker.slash.fill")
@@ -109,17 +120,151 @@ extension ContentFilterSupplement {
 
                 Spacer()
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
         }
 
-        /// Scrollable list of enabled cues displaying masked descriptions, timestamps, and action pills.
+        /// Formatted string representation of the active timing sync offset (e.g. `+0.5s` or `0.0s`).
+        private var formattedOffset: String {
+            let val = contentFilterManager.timeOffsetSeconds
+            if abs(val) < 0.05 {
+                return "0.0s"
+            }
+            return String(format: "%+.1fs", val)
+        }
+
+        /// Interactive control bar allowing session filter bypass and live subtitle/cue timing sync nudges.
+        @ViewBuilder
+        private var interactiveControlsBar: some View {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: UIDevice.isTV ? 16 : 10) {
+                    Button {
+                        contentFilterManager.toggleFilterEnabled()
+                    } label: {
+                        Label(
+                            contentFilterManager.isFilterEnabled ? "Filter Enabled" : "Filter Disabled",
+                            systemImage: contentFilterManager.isFilterEnabled ? "checkmark.shield.fill" : "shield.slash.fill"
+                        )
+                        .font(UIDevice.isTV ? .callout : .caption)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            (contentFilterManager.isFilterEnabled ? Color.green : Color.secondary).opacity(0.22),
+                            in: Capsule()
+                        )
+                        .foregroundColor(contentFilterManager.isFilterEnabled ? .green : .secondary)
+                    }
+                    #if os(tvOS)
+                    .buttonStyle(.card)
+                    #else
+                        .buttonStyle(.plain)
+                    #endif
+
+                    Button {
+                        contentFilterManager.adjustTimeOffset(by: -0.5)
+                    } label: {
+                        Label("-0.5s Earlier", systemImage: "minus.circle.fill")
+                            .font(UIDevice.isTV ? .callout : .caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.secondary.opacity(0.18), in: Capsule())
+                    }
+                    #if os(tvOS)
+                    .buttonStyle(.card)
+                    #else
+                        .buttonStyle(.plain)
+                    #endif
+
+                    Button {
+                        contentFilterManager.resetTimeOffset()
+                    } label: {
+                        Label("Sync: \(formattedOffset)", systemImage: "clock.arrow.2.circlepath")
+                            .font(UIDevice.isTV ? .callout : .caption)
+                            .monospacedDigit()
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                (abs(contentFilterManager.timeOffsetSeconds) > 0.05 ? Color.accentColor : Color.secondary).opacity(0.20),
+                                in: Capsule()
+                            )
+                    }
+                    #if os(tvOS)
+                    .buttonStyle(.card)
+                    #else
+                        .buttonStyle(.plain)
+                    #endif
+
+                    Button {
+                        contentFilterManager.adjustTimeOffset(by: 0.5)
+                    } label: {
+                        Label("+0.5s Later", systemImage: "plus.circle.fill")
+                            .font(UIDevice.isTV ? .callout : .caption)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.secondary.opacity(0.18), in: Capsule())
+                    }
+                    #if os(tvOS)
+                    .buttonStyle(.card)
+                    #else
+                        .buttonStyle(.plain)
+                    #endif
+                }
+                .padding(.vertical, 4)
+            }
+        }
+
+        /// Horizontal bar of category filter pills allowing users to toggle entire categories on or off.
+        @ViewBuilder
+        private var categoryChipsBar: some View {
+            if contentFilterManager.categories.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: UIDevice.isTV ? 14 : 8) {
+                        ForEach(contentFilterManager.categories, id: \.self) { category in
+                            let isCatEnabled = contentFilterManager.isCategoryEnabled(category)
+                            Button {
+                                contentFilterManager.toggleCategory(category)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: isCatEnabled ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(isCatEnabled ? .yellow : .secondary)
+                                    Text(ContentFilterWordMasker.mask(category))
+                                        .font(UIDevice.isTV ? .caption : .caption2)
+                                        .fontWeight(.semibold)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
+                                    (isCatEnabled ? Color.yellow : Color.secondary).opacity(0.18),
+                                    in: Capsule()
+                                )
+                            }
+                            #if os(tvOS)
+                            .buttonStyle(.card)
+                            #else
+                                .buttonStyle(.plain)
+                            #endif
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+
+        /// Scrollable list of cues displaying masked descriptions, timestamps, action pills, and interactive enable/disable toggles.
         @ViewBuilder
         private var cueList: some View {
-            ForEach(contentFilterManager.enabledCues) { cue in
-                Button(action: {}) {
+            ForEach(contentFilterManager.cues) { cue in
+                let isEffective = contentFilterManager.isFilterEnabled && cue.enabled
+                Button {
+                    contentFilterManager.toggleCue(cue.id)
+                } label: {
                     HStack(spacing: 12) {
+                        Image(systemName: cue.enabled ? "checkmark.circle.fill" : "circle")
+                            .foregroundColor(isEffective ? (cue.isMute ? .yellow : .orange) : .secondary)
+                            .frame(width: 22)
+
                         Image(systemName: cue.isMute ? "speaker.slash.fill" : "forward.fill")
-                            .foregroundColor(cue.isMute ? .yellow : .orange)
+                            .foregroundColor(isEffective ? (cue.isMute ? .yellow : .orange) : .secondary)
                             .frame(width: 24)
 
                         VStack(alignment: .leading, spacing: 2) {
@@ -127,6 +272,7 @@ extension ContentFilterSupplement {
                                 Text(ContentFilterWordMasker.mask(cue.description ?? cue.category.capitalized))
                                     .font(UIDevice.isTV ? .callout : .subheadline)
                                     .fontWeight(.semibold)
+                                    .strikethrough(!cue.enabled, color: .secondary)
 
                                 Spacer()
 
@@ -143,18 +289,19 @@ extension ContentFilterSupplement {
                                     .padding(.vertical, 2)
                                     .background(Color.secondary.opacity(0.2), in: Capsule())
 
-                                Text(cue.action.uppercased())
+                                Text(cue.enabled ? cue.action.uppercased() : "BYPASSED")
                                     .font(.system(size: 10, weight: .bold))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
                                     .background(
-                                        (cue.isMute ? Color.yellow : Color.orange).opacity(0.2),
+                                        (isEffective ? (cue.isMute ? Color.yellow : Color.orange) : Color.secondary).opacity(0.2),
                                         in: Capsule()
                                     )
-                                    .foregroundColor(cue.isMute ? .yellow : .orange)
+                                    .foregroundColor(isEffective ? (cue.isMute ? .yellow : .orange) : .secondary)
                             }
                         }
                     }
+                    .opacity(isEffective ? 1.0 : 0.55)
                     .padding(.vertical, 6)
                     #if os(tvOS)
                     .padding(.horizontal, 12)
@@ -174,6 +321,8 @@ extension ContentFilterSupplement {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     summaryHeader
+                    interactiveControlsBar
+                    categoryChipsBar
                     Divider()
                     cueList
                 }
@@ -187,8 +336,10 @@ extension ContentFilterSupplement {
         @ViewBuilder
         private var regularContent: some View {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 14) {
                     summaryHeader
+                    interactiveControlsBar
+                    categoryChipsBar
                     Divider()
                     cueList
                 }

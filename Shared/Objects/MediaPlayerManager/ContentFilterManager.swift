@@ -51,6 +51,31 @@ final class ContentFilterManager: ObservableObject {
     @Published
     var isContentFilterMuted: Bool = false
 
+    /// Session-level master toggle indicating whether ContentFilter evaluation is active for the current playback session.
+    /// Toggling this to `false` immediately unmutes any active ContentFilter mute and suspends cue evaluation.
+    @Published
+    var isFilterEnabled: Bool = true {
+        didSet {
+            guard isFilterEnabled != oldValue else { return }
+            if !isFilterEnabled, isContentFilterMuted {
+                isContentFilterMuted = false
+                manager?.proxy?.unmute(faded: true)
+                isMuted = false
+            }
+            recalculateBridgedMuteIntervals()
+        }
+    }
+
+    /// User-adjustable timing offset (in seconds) applied to all cue start and end timestamps.
+    /// Positive values delay mutes/skips; negative values trigger mutes/skips earlier.
+    @Published
+    var timeOffsetSeconds: Double = 0.0 {
+        didSet {
+            guard timeOffsetSeconds != oldValue else { return }
+            recalculateBridgedMuteIntervals()
+        }
+    }
+
     /// The specific cue that is currently active and driving player behavior at the current playback timestamp.
     @Published
     var currentActiveCue: ContentFilterCue?
@@ -121,6 +146,59 @@ final class ContentFilterManager: ObservableObject {
         Array(Set(cues.map(\.category))).sorted()
     }
 
+    // MARK: - Interactive Drawer Controls
+
+    /// Toggles the master session filter enabled state on or off.
+    func toggleFilterEnabled() {
+        isFilterEnabled.toggle()
+    }
+
+    /// Adjusts the cue synchronization timing offset by the specified delta (in seconds), clamped to `[-15.0, 15.0]`.
+    /// - Parameter delta: The number of seconds to shift cue evaluation (e.g., `-0.5` or `+0.5`).
+    func adjustTimeOffset(by delta: Double) {
+        let updated = (timeOffsetSeconds + delta) * 10
+        timeOffsetSeconds = min(15.0, max(-15.0, updated.rounded() / 10.0))
+    }
+
+    /// Resets the cue synchronization timing offset back to `0.0` seconds.
+    func resetTimeOffset() {
+        timeOffsetSeconds = 0.0
+    }
+
+    /// Returns whether at least one cue belonging to the specified category is currently enabled.
+    /// - Parameter category: The category name to query.
+    /// - Returns: `true` if any cue in the category is enabled; otherwise `false`.
+    func isCategoryEnabled(_ category: String) -> Bool {
+        cues.contains { $0.category.caseInsensitiveCompare(category) == .orderedSame && $0.enabled }
+    }
+
+    /// Toggles all cues matching the specified category on or off.
+    /// - Parameter category: The category name to toggle.
+    func toggleCategory(_ category: String) {
+        let targetState = !isCategoryEnabled(category)
+        var updated = cues
+        for index in updated.indices where updated[index].category.caseInsensitiveCompare(category) == .orderedSame {
+            updated[index].enabled = targetState
+        }
+        cues = updated
+    }
+
+    /// Toggles the `enabled` state of an individual filter cue by its identifier.
+    /// - Parameter cueID: The unique `id` (`key`) of the cue to toggle.
+    func toggleCue(_ cueID: String) {
+        guard let index = cues.firstIndex(where: { $0.id == cueID }) else { return }
+        var updated = cues
+        updated[index].enabled.toggle()
+        cues = updated
+    }
+
+    /// Seeks the active media player to 2 seconds prior to the specified cue's start timestamp.
+    /// - Parameter cue: The target cue to preview or jump to.
+    func seekToCue(_ cue: ContentFilterCue) {
+        let targetSeconds = max(0, cue.startSeconds + timeOffsetSeconds - 2.0)
+        manager?.proxy?.setSeconds(.seconds(targetSeconds))
+    }
+
     // MARK: - Network Loading
 
     /// Asynchronously fetches filter rules and clean sidecar subtitles for a given media item upon playback start.
@@ -138,6 +216,8 @@ final class ContentFilterManager: ObservableObject {
         async let subTask = ContentFilterService.shared.fetchFilteredSubtitle(for: itemID, session: session)
 
         let (filter, subs) = await (filterTask, subTask)
+        self.isFilterEnabled = true
+        self.timeOffsetSeconds = 0.0
         self.activeFilter = filter
         self.cues = filter?.cues ?? []
         self.filteredSubtitles = subs ?? []
@@ -161,13 +241,19 @@ final class ContentFilterManager: ObservableObject {
     /// Prevents rapid audio toggling, popping, and jarring stutter during fast back-to-back dialogue.
     static let muteBridgeThresholdSeconds: Double = 1.50
 
-    /// Coalesced mute time ranges incorporating lead padding, tail padding, and bridging.
+    /// Coalesced mute time ranges incorporating lead padding, tail padding, timing offset, and bridging.
     @Published
     private(set) var bridgedMuteIntervals: [ClosedRange<Double>] = []
 
-    /// Recomputes the continuous mute spans by sorting mute cues, applying lead/tail padding,
+    /// Recomputes the continuous mute spans by sorting mute cues, applying timing offset and lead/tail padding,
     /// and merging any intervals separated by less than `muteBridgeThresholdSeconds`.
     func recalculateBridgedMuteIntervals() {
+        guard isFilterEnabled else {
+            bridgedMuteIntervals = []
+            return
+        }
+
+        let offset = timeOffsetSeconds
         let sortedMuteCues = cues
             .filter { $0.enabled && $0.isMute }
             .sorted { $0.startSeconds < $1.startSeconds }
@@ -180,8 +266,8 @@ final class ContentFilterManager: ObservableObject {
         var intervals: [ClosedRange<Double>] = []
 
         for cue in sortedMuteCues {
-            let start = max(0, cue.startSeconds - Self.muteLeadSeconds)
-            let end = cue.endSeconds + Self.muteTailSeconds
+            let start = max(0, cue.startSeconds + offset - Self.muteLeadSeconds)
+            let end = max(start, cue.endSeconds + offset + Self.muteTailSeconds)
 
             if let last = intervals.last {
                 if start <= last.upperBound + Self.muteBridgeThresholdSeconds {
@@ -202,25 +288,41 @@ final class ContentFilterManager: ObservableObject {
 
     /// Evaluates the current media playback position against active filter cues.
     ///
-    /// Called at high frequency (100ms interval from `AVPlayer.addPeriodicTimeObserver` or `MediaPlayerManager`).
+    /// Called at high frequency (50ms interval from `AVPlayer` / `VLCMediaPlayerProxy` clock interpolation).
     /// - Checks if the player is inside any coalesced mute interval and asserts/de-asserts stream muting.
     /// - Evaluates scene skip cues and invokes timeline seeking past objectionable scenes.
     /// - Updates active subtitle text during mute intervals.
     ///
     /// - Parameter seconds: Current playback position represented as a native Swift `Duration`.
     func updateCurrentTime(_ seconds: Duration) {
+        guard isFilterEnabled else {
+            if isContentFilterMuted {
+                isContentFilterMuted = false
+                manager?.proxy?.unmute(faded: true)
+                self.isMuted = false
+            }
+            if currentActiveCue != nil {
+                currentActiveCue = nil
+            }
+            return
+        }
+
         let sec = seconds.seconds
+        let offset = timeOffsetSeconds
         let isInsideMuteInterval = bridgedMuteIntervals.contains(where: { $0.contains(sec) })
 
         let newActiveCue = cues.first(where: { cue in
+            let cStart = cue.startSeconds + offset
+            let cEnd = cue.endSeconds + offset
             if cue.isMute {
-                cue.enabled && sec >= max(0, cue.startSeconds - Self.muteLeadSeconds) && sec <= (cue.endSeconds + Self.muteTailSeconds)
+                return cue.enabled && sec >= max(0, cStart - Self.muteLeadSeconds) && sec <= (cEnd + Self.muteTailSeconds)
             } else {
-                cue.enabled && sec >= cue.startSeconds && sec <= cue.endSeconds
+                return cue.enabled && sec >= cStart && sec <= cEnd
             }
         }) ?? (isInsideMuteInterval ? cues.first(where: { cue in
-            cue.enabled && cue
-                .isMute && (cue.endSeconds + Self.muteTailSeconds + Self.muteBridgeThresholdSeconds >= sec && cue.startSeconds <= sec)
+            let cStart = cue.startSeconds + offset
+            let cEnd = cue.endSeconds + offset
+            return cue.enabled && cue.isMute && (cEnd + Self.muteTailSeconds + Self.muteBridgeThresholdSeconds >= sec && cStart <= sec)
         }) : nil)
 
         if currentActiveCue?.id != newActiveCue?.id {
@@ -230,7 +332,8 @@ final class ContentFilterManager: ObservableObject {
         // Check for skip cues during playback
         if let currentActiveCue, currentActiveCue.isSkip, currentActiveCue.id != lastSkippedCueID {
             lastSkippedCueID = currentActiveCue.id
-            manager?.proxy?.setSeconds(currentActiveCue.endDuration)
+            let targetEnd = max(0, currentActiveCue.endSeconds + offset)
+            manager?.proxy?.setSeconds(.seconds(targetEnd))
             triggerSkip(reason: currentActiveCue.description ?? currentActiveCue.category)
         }
 
@@ -250,7 +353,9 @@ final class ContentFilterManager: ObservableObject {
         // Update active filtered subtitle text during mute
         if isMuted && isTemporarilyDisplayingFilteredSubtitle {
             let matchingSubtitle = filteredSubtitles.first(where: {
-                sec >= max(0, $0.startSeconds - Self.muteLeadSeconds) && sec <= ($0.endSeconds + Self.muteTailSeconds)
+                let sStart = $0.startSeconds + offset
+                let sEnd = $0.endSeconds + offset
+                return sec >= max(0, sStart - Self.muteLeadSeconds) && sec <= (sEnd + Self.muteTailSeconds)
             })
             if activeFilteredSubtitleText != matchingSubtitle?.text {
                 activeFilteredSubtitleText = matchingSubtitle?.text

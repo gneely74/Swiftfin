@@ -344,10 +344,11 @@ final class ContentFilterManager: ObservableObject {
         }
 
         var intervals: [ClosedRange<Double>] = []
+        let engineBufferLead = manager?.proxy?.audioBufferLeadSeconds ?? 0.0
 
         for cue in sortedMuteCues {
             let pad = Self.padding(for: cue)
-            let start = max(0, cue.startSeconds + offset - pad.lead)
+            let start = max(0, cue.startSeconds + offset - (pad.lead + engineBufferLead))
             let end = max(start, cue.endSeconds + offset + pad.tail)
 
             if let last = intervals.last {
@@ -460,6 +461,7 @@ final class ContentFilterManager: ObservableObject {
 
         let sec = seconds.seconds
         let offset = timeOffsetSeconds
+        let engineBufferLead = manager?.proxy?.audioBufferLeadSeconds ?? 0.0
         let isInsideMuteInterval = Self.contains(sec, in: bridgedMuteIntervals)
 
         let newActiveCue = cues.first(where: { cue in
@@ -467,7 +469,7 @@ final class ContentFilterManager: ObservableObject {
             let cEnd = cue.endSeconds + offset
             if cue.isMute {
                 let pad = Self.padding(for: cue)
-                return cue.enabled && sec >= max(0, cStart - pad.lead) && sec <= (cEnd + pad.tail)
+                return cue.enabled && sec >= max(0, cStart - (pad.lead + engineBufferLead)) && sec <= (cEnd + pad.tail)
             } else {
                 return cue.enabled && sec >= cStart && sec <= cEnd
             }
@@ -475,7 +477,7 @@ final class ContentFilterManager: ObservableObject {
             let cStart = cue.startSeconds + offset
             let cEnd = cue.endSeconds + offset
             let pad = Self.padding(for: cue)
-            return cue.enabled && cue.isMute && (cEnd + pad.tail + Self.muteBridgeThresholdSeconds >= sec && cStart <= sec)
+            return cue.enabled && cue.isMute && (cEnd + pad.tail + Self.muteBridgeThresholdSeconds >= sec && cStart - engineBufferLead <= sec)
         }) : nil)
 
         if currentActiveCue?.id != newActiveCue?.id {

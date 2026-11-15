@@ -205,6 +205,12 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
     // MARK: - ContentFilter Audio Stream Muting
 
+    /// Compensates for VLCKit's `audiounit_ios` decoded audio output ring buffer (~350ms) so mutes
+    /// take effect at the speaker before short profanity words play.
+    var audioBufferLeadSeconds: Double {
+        0.35
+    }
+
     private var fadeTask: Task<Void, Never>?
 
     /// Applies ContentFilter audio attenuation in either full-mute or ambient-duck (`8%`) mode.
@@ -254,35 +260,16 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
     /// Mutes the VLC player audio stream without modifying master system volume.
     ///
-    /// Executes a fast 20ms volume step-down ramp before asserting `audio.isMuted = true` (and `audio.volume = 0` on tvOS)
-    /// to eliminate speaker zero-crossing pops and prevent HDMI eARC/AVR PCM stream dropouts.
-    /// - Parameter faded: Whether to apply a fast volume ramp to avoid abrupt audio popping.
+    /// Immediately asserts `audio.isMuted = true` and `audio.volume = 0` on the calling frame
+    /// so short single-word cues never leak through VLCKit's audio output buffer.
+    /// - Parameter faded: Ignored for VLC mute entry to guarantee zero-delay silencing; retained for protocol conformance.
     func mute(faded: Bool) {
         fadeTask?.cancel()
         isMuted.value = true
         manager?.contentFilterManager.isMuted = true
 
-        guard faded, let audio = vlcPlayer?.audio else {
-            vlcPlayer?.audio?.isMuted = true
-            #if os(tvOS)
-            vlcPlayer?.audio?.volume = 0
-            #endif
-            return
-        }
-
-        // Immediate attenuation to 30% on the calling frame to suppress leading consonant energy,
-        // followed by a 15ms step to 0 + isMuted so the DAC never clips on a non-zero crossing.
-        audio.volume = 30
-        fadeTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(nanoseconds: 15_000_000)
-            guard !Task.isCancelled else { return }
-            self.vlcPlayer?.audio?.volume = 0
-            self.vlcPlayer?.audio?.isMuted = true
-            #if !os(tvOS)
-            self.vlcPlayer?.audio?.volume = 100
-            #endif
-        }
+        vlcPlayer?.audio?.isMuted = true
+        vlcPlayer?.audio?.volume = 0
     }
 
     /// Unmutes the VLC audio stream using default smooth fading (`faded: true`).

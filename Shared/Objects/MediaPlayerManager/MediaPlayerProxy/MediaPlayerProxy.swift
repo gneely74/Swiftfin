@@ -53,6 +53,10 @@ protocol MediaPlayerProxy: ObservableObject, MediaPlayerObserver {
 
     // MARK: - Audio Stream Muting
 
+    /// Additional pre-roll lead time (in seconds) required by the underlying audio engine's output ring buffer
+    /// (e.g. VLCKit `audiounit_ios` buffer latency) so mutes silence the speaker before the word plays.
+    var audioBufferLeadSeconds: Double { get }
+
     /// Mutes the media player's audio stream using a smooth volume fade.
     func mute()
 
@@ -84,6 +88,11 @@ protocol MediaPlayerProxy: ObservableObject, MediaPlayerObserver {
 }
 
 extension MediaPlayerProxy {
+
+    /// Default zero additional buffer lead for sample-accurate engines like `AVPlayer`.
+    var audioBufferLeadSeconds: Double {
+        0.0
+    }
 
     /// Mutes the media player's audio stream using default smooth fading (`faded: true`).
     func mute() {

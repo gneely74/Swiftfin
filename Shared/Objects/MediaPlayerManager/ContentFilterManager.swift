@@ -288,22 +288,22 @@ final class ContentFilterManager: ObservableObject {
 
     // MARK: - Timing & Padding Constants
 
-    /// Pre-roll lead time (in seconds) applied before a standard subtitle/clause mute cue starts (~400ms).
+    /// Pre-roll lead time (in seconds) applied before a standard subtitle/clause mute cue starts (~250ms).
     ///
-    /// Critical for suppressing explosive consonants and initial phonemes (e.g. \"f\", \"p\", \"b\")
-    /// which frequently lead speech timestamps.
-    static let muteLeadSeconds: Double = 0.40
+    /// Suppresses explosive consonants and initial phonemes (e.g. \"f\", \"p\", \"b\")
+    /// without swallowing preceding clean dialogue.
+    static let muteLeadSeconds: Double = 0.25
 
-    /// Post-roll tail padding (in seconds) applied after a standard subtitle/clause mute cue ends (~300ms).
+    /// Post-roll tail padding (in seconds) applied after a standard subtitle/clause mute cue ends (~150ms).
     ///
-    /// Prevents audible trailing consonant clicks or abrupt cutoff before vocal cord vibration decays.
-    static let muteTailSeconds: Double = 0.30
+    /// Prevents audible trailing consonant clicks while avoiding muting subsequent clean words.
+    static let muteTailSeconds: Double = 0.15
 
-    /// Tighter pre-roll lead time (in seconds) applied when a cue has word-level acoustic timestamps (~150ms).
-    static let wordMuteLeadSeconds: Double = 0.15
+    /// Tighter pre-roll lead time (in seconds) applied when a cue has word-level acoustic timestamps (~120ms).
+    static let wordMuteLeadSeconds: Double = 0.12
 
-    /// Tighter post-roll tail padding (in seconds) applied when a cue has word-level acoustic timestamps (~150ms).
-    static let wordMuteTailSeconds: Double = 0.15
+    /// Tighter post-roll tail padding (in seconds) applied when a cue has word-level acoustic timestamps (~100ms).
+    static let wordMuteTailSeconds: Double = 0.10
 
     /// Maximum time gap (in seconds) between two consecutive mute cues to bridge as a single contiguous mute span (~1.5s).
     ///
@@ -349,7 +349,7 @@ final class ContentFilterManager: ObservableObject {
         for cue in sortedMuteCues {
             let pad = Self.padding(for: cue)
             let start = max(0, cue.startSeconds + offset - (pad.lead + engineBufferLead))
-            let end = max(start, cue.endSeconds + offset + pad.tail)
+            let end = max(start, cue.endSeconds + offset + pad.tail - engineBufferLead)
 
             if let last = intervals.last {
                 if start <= last.upperBound + Self.muteBridgeThresholdSeconds {
@@ -469,7 +469,9 @@ final class ContentFilterManager: ObservableObject {
             let cEnd = cue.endSeconds + offset
             if cue.isMute {
                 let pad = Self.padding(for: cue)
-                return cue.enabled && sec >= max(0, cStart - (pad.lead + engineBufferLead)) && sec <= (cEnd + pad.tail)
+                return cue.enabled
+                    && sec >= max(0, cStart - (pad.lead + engineBufferLead))
+                    && sec <= max(0, cEnd + pad.tail - engineBufferLead)
             } else {
                 return cue.enabled && sec >= cStart && sec <= cEnd
             }
@@ -477,7 +479,8 @@ final class ContentFilterManager: ObservableObject {
             let cStart = cue.startSeconds + offset
             let cEnd = cue.endSeconds + offset
             let pad = Self.padding(for: cue)
-            return cue.enabled && cue.isMute && (cEnd + pad.tail + Self.muteBridgeThresholdSeconds >= sec && cStart - engineBufferLead <= sec)
+            return cue.enabled && cue.isMute
+                && (cEnd + pad.tail - engineBufferLead + Self.muteBridgeThresholdSeconds >= sec && cStart - engineBufferLead <= sec)
         }) : nil)
 
         if currentActiveCue?.id != newActiveCue?.id {

@@ -174,7 +174,7 @@ extension VideoPlayer {
                 VStack(alignment: .trailing, spacing: 10) {
                     ContentFilterMuteBadge(
                         isMuted: contentFilterManager.isMuted,
-                        cueDescription: contentFilterManager.currentActiveCue?.description
+                        cueCategory: contentFilterManager.currentActiveCue?.category
                     )
                     .animation(.easeInOut(duration: 0.25), value: contentFilterManager.isMuted)
 

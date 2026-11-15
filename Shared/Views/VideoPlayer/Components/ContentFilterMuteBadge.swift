@@ -11,14 +11,21 @@ import SwiftUI
 /// Floating pill badge displayed in the upper-right corner of the video player when audio is actively muted.
 ///
 /// Features frosted-glass ultra-thin material styling, a yellow speaker-slash symbol,
-/// and automatically masked reason text (e.g. `MUTED (f***)`).
+/// and a clean category label (e.g. `MUTED • Language`) without ever displaying the muted word itself.
 struct ContentFilterMuteBadge: View {
 
     /// Whether the mute indicator should be rendered on screen.
     let isMuted: Bool
 
-    /// Optional descriptive reason or dialogue phrase for the mute cue.
-    let cueDescription: String?
+    /// Optional category name for the active mute cue (e.g. "Language.GeneralProfanity").
+    let cueCategory: String?
+
+    /// Formats a raw server category string into a concise, human-readable label (e.g. `"Language"`).
+    private var formattedCategory: String? {
+        guard let cueCategory, !cueCategory.isEmpty else { return nil }
+        let primary = cueCategory.split(separator: ".").first.map(String.init) ?? cueCategory
+        return primary.isEmpty ? nil : primary
+    }
 
     var body: some View {
         if isMuted {
@@ -29,7 +36,7 @@ struct ContentFilterMuteBadge: View {
                     .frame(width: UIDevice.isTV ? 20 : 14, height: UIDevice.isTV ? 20 : 14)
                     .foregroundColor(.yellow)
 
-                Text(cueDescription != nil ? "MUTED (\(ContentFilterWordMasker.mask(cueDescription!)))" : "MUTED")
+                Text(formattedCategory != nil ? "MUTED • \(formattedCategory!)" : "MUTED")
                     .font(UIDevice.isTV ? .caption : .caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)

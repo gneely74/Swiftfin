@@ -573,7 +573,7 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertFalse(manager.isMuted)
     }
 
-    /// Verifies that word-precision cues use tighter 0.15s lead/tail padding instead of 0.40s/0.30s.
+    /// Verifies that word-precision cues use tighter 0.12s lead / 0.10s tail padding instead of 0.25s/0.15s.
     @MainActor
     func testWordPrecisionAdaptivePadding() {
         let manager = ContentFilterManager()
@@ -593,11 +593,11 @@ final class ContentFilterSocketTests: XCTestCase {
 
         XCTAssertEqual(manager.bridgedMuteIntervals.count, 1)
         let interval = manager.bridgedMuteIntervals[0]
-        XCTAssertEqual(interval.lowerBound, 9.85, accuracy: 0.001)
-        XCTAssertEqual(interval.upperBound, 10.65, accuracy: 0.001)
+        XCTAssertEqual(interval.lowerBound, 9.88, accuracy: 0.001)
+        XCTAssertEqual(interval.upperBound, 10.60, accuracy: 0.001)
 
-        // At 9.70s (within 0.40s subtitle padding, but outside 0.15s word padding) -> should NOT be muted
-        manager.updateCurrentTime(.seconds(9.70))
+        // At 9.80s (within 0.25s subtitle padding, but outside 0.12s word padding) -> should NOT be muted
+        manager.updateCurrentTime(.seconds(9.80))
         XCTAssertFalse(manager.isMuted)
 
         // At 9.90s (within 0.15s word padding) -> should be muted

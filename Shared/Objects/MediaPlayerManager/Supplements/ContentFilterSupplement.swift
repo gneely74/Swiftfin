@@ -161,6 +161,29 @@ extension ContentFilterSupplement {
                     #endif
 
                     Button {
+                        contentFilterManager.toggleAudioMode()
+                    } label: {
+                        Label(
+                            contentFilterManager.audioMode.displayTitle,
+                            systemImage: contentFilterManager.audioMode == .mute ? "speaker.slash.fill" : "speaker.wave.1.fill"
+                        )
+                        .font(UIDevice.isTV ? .callout : .caption)
+                        .fontWeight(.semibold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            (contentFilterManager.audioMode == .duck ? Color.blue : Color.secondary).opacity(0.22),
+                            in: Capsule()
+                        )
+                        .foregroundColor(contentFilterManager.audioMode == .duck ? .blue : .primary)
+                    }
+                    #if os(tvOS)
+                    .buttonStyle(.card)
+                    #else
+                        .buttonStyle(.plain)
+                    #endif
+
+                    Button {
                         contentFilterManager.adjustTimeOffset(by: -0.5)
                     } label: {
                         Label("-0.5s Earlier", systemImage: "minus.circle.fill")

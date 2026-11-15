@@ -73,6 +73,14 @@ protocol MediaPlayerProxy: ObservableObject, MediaPlayerObserver {
     /// Toggles the media player's audio mute state.
     /// - Parameter faded: Whether to apply a fast volume fade ramp to prevent abrupt audio popping.
     func toggleMute(faded: Bool)
+
+    /// Applies ContentFilter audio attenuation (either full mute or ambient ducking) without modifying system volume.
+    ///
+    /// - Parameters:
+    ///   - active: `true` to attenuate audio for an active cue; `false` to restore full playback volume.
+    ///   - mode: The attenuation strategy (`.mute` or `.duck`).
+    ///   - faded: Whether to apply a fast volume ramp to prevent abrupt audio popping.
+    func setContentFilterAttenuation(active: Bool, mode: ContentFilterAudioMode, faded: Bool)
 }
 
 extension MediaPlayerProxy {
@@ -90,6 +98,15 @@ extension MediaPlayerProxy {
     /// Toggles the media player's audio mute state using default smooth fading (`faded: true`).
     func toggleMute() {
         toggleMute(faded: true)
+    }
+
+    /// Default attenuation implementation falling back to `mute(faded:)` and `unmute(faded:)`.
+    func setContentFilterAttenuation(active: Bool, mode: ContentFilterAudioMode, faded: Bool) {
+        if active {
+            mute(faded: faded)
+        } else {
+            unmute(faded: faded)
+        }
     }
 }
 

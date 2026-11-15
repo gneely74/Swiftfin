@@ -103,6 +103,27 @@ struct ContentFilterResponse: Codable, Equatable {
     }
 }
 
+/// Audio attenuation strategy applied by ContentFilter during active mute intervals.
+enum ContentFilterAudioMode: String, CaseIterable, Codable, Equatable {
+
+    /// Silences the audio stream completely (`isMuted = true`, `volume = 0`).
+    case mute
+
+    /// Attenuates the audio stream to a low ambient floor (`volume = 0.08`) without asserting `isMuted`,
+    /// preserving background score and preventing HDMI eARC/AVR PCM stream dropouts.
+    case duck
+
+    /// Human-readable label displayed in the Content Filter supplement drawer.
+    var displayTitle: String {
+        switch self {
+        case .mute:
+            "Full Mute"
+        case .duck:
+            "Duck (8%)"
+        }
+    }
+}
+
 /// Represents an individual content filter cue specifying a time interval, target channel, and action.
 ///
 /// A cue dictates either an **audio mute** (e.g. silencing profanity or crude dialogue) or a **scene skip**
@@ -130,8 +151,17 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
     /// Action requested by this cue ("mute", "skip", or custom action).
     let action: String
 
+    /// Optional timing precision tag provided by the server (e.g. "word", "clause", "visual").
+    let precision: String?
+
     /// Whether this cue is actively enabled for filtering evaluation.
     var enabled: Bool
+
+    /// Returns `true` when this cue was generated from word-level acoustic timestamps (e.g. Whisper word alignment),
+    /// allowing tighter lead/tail padding than full-subtitle cues.
+    var isWordPrecision: Bool {
+        precision?.caseInsensitiveCompare("word") == .orderedSame
+    }
 
     /// Identifiable protocol conformance returning `key`.
     var id: String {
@@ -203,6 +233,8 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
         case Channel
         case action
         case Action
+        case precision
+        case Precision
         case enabled
         case Enabled
     }
@@ -217,6 +249,7 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
     ///   - category: Category classification. Defaults to "General".
     ///   - channel: Target channel ("both", "audio", "video"). Defaults to "both".
     ///   - action: Action to perform ("mute", "skip"). Defaults to "mute".
+    ///   - precision: Optional timing precision tag (e.g. "word"). Defaults to `nil`.
     ///   - enabled: Whether the cue is active. Defaults to `true`.
     init(
         key: String,
@@ -226,6 +259,7 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
         category: String = "General",
         channel: String = "both",
         action: String = "mute",
+        precision: String? = nil,
         enabled: Bool = true
     ) {
         self.key = key
@@ -235,6 +269,7 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
         self.category = category
         self.channel = channel
         self.action = action
+        self.precision = precision
         self.enabled = enabled
     }
 
@@ -291,6 +326,9 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
             ?? (try? container.decode(String.self, forKey: .Action))
             ?? "mute"
 
+        self.precision = (try? container.decodeIfPresent(String.self, forKey: .precision))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .Precision))
+
         self.enabled = (try? container.decode(Bool.self, forKey: .enabled))
             ?? (try? container.decode(Bool.self, forKey: .Enabled))
             ?? true
@@ -309,6 +347,7 @@ struct ContentFilterCue: Codable, Identifiable, Equatable, Hashable {
         try container.encode(category, forKey: .category)
         try container.encode(channel, forKey: .channel)
         try container.encode(action, forKey: .action)
+        try container.encodeIfPresent(precision, forKey: .precision)
         try container.encode(enabled, forKey: .enabled)
     }
 

@@ -572,4 +572,75 @@ final class ContentFilterSocketTests: XCTestCase {
         XCTAssertFalse(manager.isContentFilterMuted)
         XCTAssertFalse(manager.isMuted)
     }
+
+    /// Verifies that word-precision cues use tighter 0.15s lead/tail padding instead of 0.40s/0.30s.
+    @MainActor
+    func testWordPrecisionAdaptivePadding() {
+        let manager = ContentFilterManager()
+        let wordCue = ContentFilterCue(
+            key: "w1",
+            start: "00:00:10.000",
+            end: "00:00:10.500",
+            description: "Spoken word",
+            category: "profanity",
+            channel: "audio",
+            action: "mute",
+            precision: "word",
+            enabled: true
+        )
+        XCTAssertTrue(wordCue.isWordPrecision)
+        manager.cues = [wordCue]
+
+        XCTAssertEqual(manager.bridgedMuteIntervals.count, 1)
+        let interval = manager.bridgedMuteIntervals[0]
+        XCTAssertEqual(interval.lowerBound, 9.85, accuracy: 0.001)
+        XCTAssertEqual(interval.upperBound, 10.65, accuracy: 0.001)
+
+        // At 9.70s (within 0.40s subtitle padding, but outside 0.15s word padding) -> should NOT be muted
+        manager.updateCurrentTime(.seconds(9.70))
+        XCTAssertFalse(manager.isMuted)
+
+        // At 9.90s (within 0.15s word padding) -> should be muted
+        manager.updateCurrentTime(.seconds(9.90))
+        XCTAssertTrue(manager.isMuted)
+    }
+
+    /// Verifies binary search interval containment and subtitle lookup with timing offset.
+    func testBinarySearchHelpers() {
+        let intervals: [ClosedRange<Double>] = [5.0 ... 6.5, 12.0 ... 14.0, 30.0 ... 32.0]
+        XCTAssertFalse(ContentFilterManager.contains(4.9, in: intervals))
+        XCTAssertTrue(ContentFilterManager.contains(5.0, in: intervals))
+        XCTAssertTrue(ContentFilterManager.contains(13.2, in: intervals))
+        XCTAssertFalse(ContentFilterManager.contains(20.0, in: intervals))
+        XCTAssertTrue(ContentFilterManager.contains(32.0, in: intervals))
+        XCTAssertFalse(ContentFilterManager.contains(32.1, in: intervals))
+
+        let subs = [
+            ContentFilterSubtitleItem(index: 1, startSeconds: 10.0, endSeconds: 12.0, text: "First"),
+            ContentFilterSubtitleItem(index: 2, startSeconds: 25.0, endSeconds: 27.0, text: "Second"),
+        ]
+        XCTAssertEqual(ContentFilterManager.subtitleItem(at: 11.0, offset: 0.0, in: subs)?.text, "First")
+        XCTAssertEqual(ContentFilterManager.subtitleItem(at: 26.5, offset: 1.0, in: subs)?.text, "Second")
+        XCTAssertNil(ContentFilterManager.subtitleItem(at: 18.0, offset: 0.0, in: subs))
+    }
+
+    /// Verifies dynamic server word list synchronization and hyphenated variant masking in ``ContentFilterWordMasker``.
+    func testServerWordSyncAndHyphenMasking() {
+        XCTAssertEqual(ContentFilterWordMasker.mask("What bull-shit!"), "What b********!")
+
+        ContentFilterWordMasker.updateServerWords(["frack", "gorram"])
+        XCTAssertEqual(ContentFilterWordMasker.mask("What the frack, gorram it!"), "What the f****, g***** it!")
+        ContentFilterWordMasker.updateServerWords([])
+    }
+
+    /// Verifies audio mode toggling between `.mute` and `.duck`.
+    @MainActor
+    func testAudioModeToggle() {
+        let manager = ContentFilterManager()
+        let initial = manager.audioMode
+        manager.toggleAudioMode()
+        XCTAssertNotEqual(manager.audioMode, initial)
+        manager.toggleAudioMode()
+        XCTAssertEqual(manager.audioMode, initial)
+    }
 }

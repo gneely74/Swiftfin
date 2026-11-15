@@ -68,11 +68,35 @@ final class ContentFilterManager: ObservableObject {
 
     /// User-adjustable timing offset (in seconds) applied to all cue start and end timestamps.
     /// Positive values delay mutes/skips; negative values trigger mutes/skips earlier.
+    /// Automatically persisted per media item in `UserDefaults`.
     @Published
     var timeOffsetSeconds: Double = 0.0 {
         didSet {
             guard timeOffsetSeconds != oldValue else { return }
+            if let currentItemID {
+                UserDefaults.standard.set(timeOffsetSeconds, forKey: Self.timeOffsetDefaultsKey(for: currentItemID))
+            }
             recalculateBridgedMuteIntervals()
+        }
+    }
+
+    /// Active audio attenuation strategy (`.mute` for full silence or `.duck` for 8% ambient floor).
+    /// Persisted globally in `UserDefaults`.
+    @Published
+    var audioMode: ContentFilterAudioMode = {
+        if let raw = UserDefaults.standard.string(forKey: "ContentFilter.audioMode"),
+           let mode = ContentFilterAudioMode(rawValue: raw)
+        {
+            return mode
+        }
+        return .mute
+    }() {
+        didSet {
+            guard audioMode != oldValue else { return }
+            UserDefaults.standard.set(audioMode.rawValue, forKey: "ContentFilter.audioMode")
+            if isContentFilterMuted {
+                manager?.proxy?.setContentFilterAttenuation(active: true, mode: audioMode, faded: true)
+            }
         }
     }
 
@@ -85,6 +109,11 @@ final class ContentFilterManager: ObservableObject {
     /// Published flag driving the visibility of `ContentFilterSkipBadge`.
     @Published
     var isSkipping: Bool = false
+
+    /// Published flag driving a brief black-frame fade overlay during scene skip seeks
+    /// so keyframe seek latency does not flash objectionable frames.
+    @Published
+    var isSkipTransitioning: Bool = false
 
     /// The category or descriptive reason displayed on the skip badge (e.g. "Violence", "Nudity").
     @Published
@@ -100,11 +129,18 @@ final class ContentFilterManager: ObservableObject {
     @Published
     var activeFilteredSubtitleText: String? = nil
 
-    /// Identifier of the cue most recently skipped to prevent infinite seek re-trigger loops.
-    private var lastSkippedCueID: String?
+    /// Identifier of the currently loaded Jellyfin media item, used for per-item offset persistence.
+    private var currentItemID: String?
+
+    /// Set of skip cue identifiers that have already been jumped during the current pass,
+    /// preventing infinite seek re-trigger loops while allowing re-skipping if the user rewinds before the cue.
+    private var recentlySkippedCueIDs: Set<String> = []
 
     /// Asynchronous task managing the 2.6-second auto-dismiss timeout for the scene skip badge.
     private var skipDismissTask: Task<Void, Never>?
+
+    /// Asynchronous task managing the brief black-frame fade overlay during scene skip seeks.
+    private var skipTransitionTask: Task<Void, Never>?
 
     /// Tracks whether the subtitle overlay is currently active due to an audio mute event.
     private var isTemporarilyDisplayingFilteredSubtitle: Bool = false
@@ -165,6 +201,18 @@ final class ContentFilterManager: ObservableObject {
         timeOffsetSeconds = 0.0
     }
 
+    /// Toggles the audio attenuation strategy between full mute (`.mute`) and ambient ducking (`.duck`).
+    func toggleAudioMode() {
+        audioMode = (audioMode == .mute) ? .duck : .mute
+    }
+
+    /// Returns the `UserDefaults` key used to persist `timeOffsetSeconds` for a specific Jellyfin media item.
+    /// - Parameter itemID: The Jellyfin media item identifier.
+    /// - Returns: A namespaced `UserDefaults` key string.
+    private static func timeOffsetDefaultsKey(for itemID: String) -> String {
+        "ContentFilter.timeOffset.\(itemID)"
+    }
+
     /// Returns whether at least one cue belonging to the specified category is currently enabled.
     /// - Parameter category: The category name to query.
     /// - Returns: `true` if any cue in the category is enabled; otherwise `false`.
@@ -201,7 +249,11 @@ final class ContentFilterManager: ObservableObject {
 
     // MARK: - Network Loading
 
-    /// Asynchronously fetches filter rules and clean sidecar subtitles for a given media item upon playback start.
+    /// Asynchronously fetches filter rules, clean sidecar subtitles, and server global blanket words
+    /// for a given media item upon playback start.
+    ///
+    /// Restores any previously persisted per-item `timeOffsetSeconds` and immediately evaluates the
+    /// current playback position so resuming inside a mute or skip interval takes effect without delay.
     ///
     /// - Parameters:
     ///   - itemID: The Jellyfin item identifier.
@@ -214,38 +266,66 @@ final class ContentFilterManager: ObservableObject {
 
         async let filterTask = ContentFilterService.shared.fetchFilter(for: itemID, session: session)
         async let subTask = ContentFilterService.shared.fetchFilteredSubtitle(for: itemID, session: session)
+        async let wordsTask = ContentFilterService.shared.fetchGlobalBlanketWords(session: session)
 
-        let (filter, subs) = await (filterTask, subTask)
+        let (filter, subs, serverWords) = await (filterTask, subTask, wordsTask)
+        if let serverWords, !serverWords.isEmpty {
+            ContentFilterWordMasker.updateServerWords(serverWords)
+        }
+
+        self.currentItemID = itemID
+        self.recentlySkippedCueIDs.removeAll()
         self.isFilterEnabled = true
-        self.timeOffsetSeconds = 0.0
+        self.timeOffsetSeconds = UserDefaults.standard.double(forKey: Self.timeOffsetDefaultsKey(for: itemID))
         self.activeFilter = filter
         self.cues = filter?.cues ?? []
         self.filteredSubtitles = subs ?? []
+
+        if let currentSeconds = manager?.seconds {
+            updateCurrentTime(currentSeconds)
+        }
     }
 
     // MARK: - Timing & Padding Constants
 
-    /// Pre-roll lead time (in seconds) applied before a mute cue starts (~400ms).
+    /// Pre-roll lead time (in seconds) applied before a standard subtitle/clause mute cue starts (~400ms).
     ///
     /// Critical for suppressing explosive consonants and initial phonemes (e.g. \"f\", \"p\", \"b\")
     /// which frequently lead speech timestamps.
     static let muteLeadSeconds: Double = 0.40
 
-    /// Post-roll tail padding (in seconds) applied after a mute cue ends (~300ms).
+    /// Post-roll tail padding (in seconds) applied after a standard subtitle/clause mute cue ends (~300ms).
     ///
     /// Prevents audible trailing consonant clicks or abrupt cutoff before vocal cord vibration decays.
     static let muteTailSeconds: Double = 0.30
+
+    /// Tighter pre-roll lead time (in seconds) applied when a cue has word-level acoustic timestamps (~150ms).
+    static let wordMuteLeadSeconds: Double = 0.15
+
+    /// Tighter post-roll tail padding (in seconds) applied when a cue has word-level acoustic timestamps (~150ms).
+    static let wordMuteTailSeconds: Double = 0.15
 
     /// Maximum time gap (in seconds) between two consecutive mute cues to bridge as a single contiguous mute span (~1.5s).
     ///
     /// Prevents rapid audio toggling, popping, and jarring stutter during fast back-to-back dialogue.
     static let muteBridgeThresholdSeconds: Double = 1.50
 
+    /// Returns the appropriate pre-roll lead and post-roll tail padding for a given cue based on its precision.
+    /// - Parameter cue: The cue being evaluated.
+    /// - Returns: A tuple of `(lead, tail)` in seconds.
+    static func padding(for cue: ContentFilterCue) -> (lead: Double, tail: Double) {
+        if cue.isWordPrecision {
+            (wordMuteLeadSeconds, wordMuteTailSeconds)
+        } else {
+            (muteLeadSeconds, muteTailSeconds)
+        }
+    }
+
     /// Coalesced mute time ranges incorporating lead padding, tail padding, timing offset, and bridging.
     @Published
     private(set) var bridgedMuteIntervals: [ClosedRange<Double>] = []
 
-    /// Recomputes the continuous mute spans by sorting mute cues, applying timing offset and lead/tail padding,
+    /// Recomputes the continuous mute spans by sorting mute cues, applying timing offset and adaptive lead/tail padding,
     /// and merging any intervals separated by less than `muteBridgeThresholdSeconds`.
     func recalculateBridgedMuteIntervals() {
         guard isFilterEnabled else {
@@ -266,8 +346,9 @@ final class ContentFilterManager: ObservableObject {
         var intervals: [ClosedRange<Double>] = []
 
         for cue in sortedMuteCues {
-            let start = max(0, cue.startSeconds + offset - Self.muteLeadSeconds)
-            let end = max(start, cue.endSeconds + offset + Self.muteTailSeconds)
+            let pad = Self.padding(for: cue)
+            let start = max(0, cue.startSeconds + offset - pad.lead)
+            let end = max(start, cue.endSeconds + offset + pad.tail)
 
             if let last = intervals.last {
                 if start <= last.upperBound + Self.muteBridgeThresholdSeconds {
@@ -282,6 +363,76 @@ final class ContentFilterManager: ObservableObject {
         }
 
         bridgedMuteIntervals = intervals
+    }
+
+    // MARK: - Binary Search Helpers
+
+    /// Performs an $O(\log n)$ binary search on sorted, non-overlapping `ClosedRange<Double>` intervals
+    /// to determine whether `time` falls within any active mute span.
+    ///
+    /// - Parameters:
+    ///   - time: The current playback timestamp in seconds.
+    ///   - sortedIntervals: Sorted, coalesced mute intervals.
+    /// - Returns: `true` if `time` is contained in any interval; otherwise `false`.
+    static func contains(_ time: Double, in sortedIntervals: [ClosedRange<Double>]) -> Bool {
+        var low = 0
+        var high = sortedIntervals.count - 1
+
+        while low <= high {
+            let mid = (low + high) / 2
+            let interval = sortedIntervals[mid]
+            if time < interval.lowerBound {
+                high = mid - 1
+            } else if time > interval.upperBound {
+                low = mid + 1
+            } else {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Performs an $O(\log n)$ binary search on sorted `ContentFilterSubtitleItem` entries
+    /// to locate the active masked subtitle item at the given playback timestamp.
+    ///
+    /// - Parameters:
+    ///   - time: Current playback timestamp in seconds.
+    ///   - offset: User-configured timing offset in seconds.
+    ///   - sortedSubtitles: Sorted array of filtered subtitle items.
+    /// - Returns: The matching `ContentFilterSubtitleItem`, or `nil` if none is active.
+    static func subtitleItem(
+        at time: Double,
+        offset: Double,
+        in sortedSubtitles: [ContentFilterSubtitleItem]
+    ) -> ContentFilterSubtitleItem? {
+        guard !sortedSubtitles.isEmpty else { return nil }
+
+        var low = 0
+        var high = sortedSubtitles.count - 1
+        var candidateIndex: Int?
+
+        while low <= high {
+            let mid = (low + high) / 2
+            let sStart = max(0, sortedSubtitles[mid].startSeconds + offset - muteLeadSeconds)
+            if sStart <= time {
+                candidateIndex = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+
+        guard let idx = candidateIndex else { return nil }
+        // Walk backward through any overlapping subtitle items that started <= time
+        for i in stride(from: idx, through: max(0, idx - 3), by: -1) {
+            let item = sortedSubtitles[i]
+            let sStart = max(0, item.startSeconds + offset - muteLeadSeconds)
+            let sEnd = item.endSeconds + offset + muteTailSeconds
+            if time >= sStart, time <= sEnd {
+                return item
+            }
+        }
+        return nil
     }
 
     // MARK: - Periodic Time Evaluation
@@ -309,56 +460,79 @@ final class ContentFilterManager: ObservableObject {
 
         let sec = seconds.seconds
         let offset = timeOffsetSeconds
-        let isInsideMuteInterval = bridgedMuteIntervals.contains(where: { $0.contains(sec) })
+        let isInsideMuteInterval = Self.contains(sec, in: bridgedMuteIntervals)
 
         let newActiveCue = cues.first(where: { cue in
             let cStart = cue.startSeconds + offset
             let cEnd = cue.endSeconds + offset
             if cue.isMute {
-                return cue.enabled && sec >= max(0, cStart - Self.muteLeadSeconds) && sec <= (cEnd + Self.muteTailSeconds)
+                let pad = Self.padding(for: cue)
+                return cue.enabled && sec >= max(0, cStart - pad.lead) && sec <= (cEnd + pad.tail)
             } else {
                 return cue.enabled && sec >= cStart && sec <= cEnd
             }
         }) ?? (isInsideMuteInterval ? cues.first(where: { cue in
             let cStart = cue.startSeconds + offset
             let cEnd = cue.endSeconds + offset
-            return cue.enabled && cue.isMute && (cEnd + Self.muteTailSeconds + Self.muteBridgeThresholdSeconds >= sec && cStart <= sec)
+            let pad = Self.padding(for: cue)
+            return cue.enabled && cue.isMute && (cEnd + pad.tail + Self.muteBridgeThresholdSeconds >= sec && cStart <= sec)
         }) : nil)
 
         if currentActiveCue?.id != newActiveCue?.id {
             currentActiveCue = newActiveCue
         }
 
+        // Allow re-skipping if the user explicitly scrubbed back before a previously skipped cue's start
+        if !recentlySkippedCueIDs.isEmpty {
+            recentlySkippedCueIDs = recentlySkippedCueIDs.filter { skippedID in
+                guard let cue = cues.first(where: { $0.id == skippedID }) else { return false }
+                return sec >= (cue.startSeconds + offset - 0.5)
+            }
+        }
+
         // Check for skip cues during playback
-        if let currentActiveCue, currentActiveCue.isSkip, currentActiveCue.id != lastSkippedCueID {
-            lastSkippedCueID = currentActiveCue.id
+        if let currentActiveCue, currentActiveCue.isSkip, !recentlySkippedCueIDs.contains(currentActiveCue.id) {
+            recentlySkippedCueIDs.insert(currentActiveCue.id)
             let targetEnd = max(0, currentActiveCue.endSeconds + offset)
+            triggerSkipTransition()
             manager?.proxy?.setSeconds(.seconds(targetEnd))
             triggerSkip(reason: currentActiveCue.description ?? currentActiveCue.category)
         }
 
-        // Check for mute cues during playback with pre-roll lead, post-roll tail, and bridge coalescing
+        // Check for mute cues during playback with adaptive padding and bridge coalescing
         if isInsideMuteInterval {
             if !isContentFilterMuted {
                 isContentFilterMuted = true
-                manager?.proxy?.mute(faded: true)
+                manager?.proxy?.setContentFilterAttenuation(active: true, mode: audioMode, faded: true)
                 self.isMuted = true
             }
         } else if isContentFilterMuted {
             isContentFilterMuted = false
-            manager?.proxy?.unmute(faded: true)
+            manager?.proxy?.setContentFilterAttenuation(active: false, mode: audioMode, faded: true)
             self.isMuted = false
         }
 
         // Update active filtered subtitle text during mute
         if isMuted && isTemporarilyDisplayingFilteredSubtitle {
-            let matchingSubtitle = filteredSubtitles.first(where: {
-                let sStart = $0.startSeconds + offset
-                let sEnd = $0.endSeconds + offset
-                return sec >= max(0, sStart - Self.muteLeadSeconds) && sec <= (sEnd + Self.muteTailSeconds)
-            })
+            let matchingSubtitle = Self.subtitleItem(at: sec, offset: offset, in: filteredSubtitles)
             if activeFilteredSubtitleText != matchingSubtitle?.text {
                 activeFilteredSubtitleText = matchingSubtitle?.text
+            }
+        }
+    }
+
+    /// Briefly fades the video frame to black (`~250ms`) during a scene skip seek so keyframe seek latency
+    /// does not flash objectionable frames.
+    private func triggerSkipTransition() {
+        skipTransitionTask?.cancel()
+        withAnimation(.easeOut(duration: 0.06)) {
+            self.isSkipTransitioning = true
+        }
+        skipTransitionTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.15)) {
+                self.isSkipTransitioning = false
             }
         }
     }
@@ -414,9 +588,7 @@ final class ContentFilterManager: ObservableObject {
         // Display overlay subtitle if available from API
         isTemporarilyDisplayingFilteredSubtitle = true
         let seconds = manager?.seconds.seconds ?? 0
-        let match = filteredSubtitles.first(where: {
-            seconds >= max(0, $0.startSeconds - Self.muteLeadSeconds) && seconds <= ($0.endSeconds + Self.muteTailSeconds)
-        })
+        let match = Self.subtitleItem(at: seconds, offset: timeOffsetSeconds, in: filteredSubtitles)
         activeFilteredSubtitleText = match?.text
     }
 
@@ -439,14 +611,18 @@ final class ContentFilterManager: ObservableObject {
         }
         skipDismissTask?.cancel()
         skipDismissTask = nil
+        skipTransitionTask?.cancel()
+        skipTransitionTask = nil
         disableFilteredSubtitleIfApplicable()
+        currentItemID = nil
         activeFilter = nil
         cues = []
         filteredSubtitles = []
         isMuted = false
         isSkipping = false
+        isSkipTransitioning = false
         lastSkipReason = nil
-        lastSkippedCueID = nil
+        recentlySkippedCueIDs.removeAll()
         currentActiveCue = nil
         activeFilteredSubtitleText = nil
     }

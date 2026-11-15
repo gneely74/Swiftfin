@@ -132,6 +132,9 @@ extension VideoPlayer {
                         }
                         .isVisible(shouldPresentDimOverlay)
                     }
+                    .overlay {
+                        ContentFilterSkipTransitionContainer(contentFilterManager: manager.contentFilterManager)
+                    }
                     .overlay(alignment: .topTrailing) {
                         ContentFilterHUDContainer(contentFilterManager: manager.contentFilterManager)
                             .padding(.top, UIDevice.isTV ? 60 : 40)
@@ -141,6 +144,21 @@ extension VideoPlayer {
                         ContentFilterSubtitleContainer(contentFilterManager: manager.contentFilterManager)
                     }
                     .allowsHitTesting(false)
+            }
+        }
+
+        /// Container view rendering a brief black-frame fade during scene skip seeks so keyframe seek
+        /// latency does not flash objectionable frames.
+        private struct ContentFilterSkipTransitionContainer: View {
+
+            /// Active ContentFilterManager observed for scene skip transition state.
+            @ObservedObject
+            var contentFilterManager: ContentFilterManager
+
+            var body: some View {
+                Color.black
+                    .opacity(contentFilterManager.isSkipTransitioning ? 1.0 : 0.0)
+                    .ignoresSafeArea()
             }
         }
 

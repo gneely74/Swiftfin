@@ -207,6 +207,46 @@ class VLCMediaPlayerProxy: VideoMediaPlayerProxy,
 
     private var fadeTask: Task<Void, Never>?
 
+    /// Applies ContentFilter audio attenuation in either full-mute or ambient-duck (`8%`) mode.
+    ///
+    /// When `mode == .duck`, `audio.volume` is attenuated to `8` while keeping `audio.isMuted = false`
+    /// so HDMI eARC/AVR PCM streams stay locked and background score remains faintly audible.
+    /// - Parameters:
+    ///   - active: `true` to attenuate audio; `false` to restore full volume.
+    ///   - mode: The attenuation strategy (`.mute` or `.duck`).
+    ///   - faded: Whether to apply a fast volume ramp to eliminate popping.
+    func setContentFilterAttenuation(active: Bool, mode: ContentFilterAudioMode, faded: Bool) {
+        guard active else {
+            unmute(faded: faded)
+            return
+        }
+
+        if mode == .mute {
+            mute(faded: faded)
+            return
+        }
+
+        fadeTask?.cancel()
+        isMuted.value = true
+        manager?.contentFilterManager.isMuted = true
+
+        guard let audio = vlcPlayer?.audio else { return }
+        audio.isMuted = false
+
+        guard faded else {
+            audio.volume = 8
+            return
+        }
+
+        audio.volume = 30
+        fadeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 15_000_000)
+            guard !Task.isCancelled else { return }
+            self.vlcPlayer?.audio?.volume = 8
+        }
+    }
+
     /// Mutes the VLC audio stream using default smooth fading (`faded: true`).
     func mute() {
         mute(faded: true)

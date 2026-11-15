@@ -179,4 +179,50 @@ final class ContentFilterService {
 
         return nil
     }
+
+    /// Fetches the server's global blanket filter word list (`GET /ContentFilter/subtitles/global-blanket-words`)
+    /// so client-side subtitle masking stays synchronized with server-side profanity rules.
+    ///
+    /// - Parameter session: The active `UserSession` providing base URLs and authentication credentials.
+    /// - Returns: An array of configured blanket words, or `nil` if the endpoint is unavailable.
+    func fetchGlobalBlanketWords(session: UserSession) async -> [String]? {
+        let path = "ContentFilter/subtitles/global-blanket-words"
+
+        do {
+            let request = Request<Data>(path: path, method: "GET")
+            let response = try await session.client.data(for: request)
+            if response.statusCode == 200 {
+                let words = try JSONDecoder().decode([String].self, from: response.value)
+                logger.info("ContentFilterService: Synchronized \(words.count) global blanket words from server")
+                return words
+            }
+        } catch {
+            logger.warning("ContentFilterService: Global blanket words request failed: \(error.localizedDescription)")
+        }
+
+        let endpointURL = session.server.effectiveServerURL.appendingPathComponent(path)
+        var request = URLRequest(url: endpointURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 8
+
+        let token = session.user.accessToken
+        if !token.isEmpty {
+            request.setValue("MediaBrowser Client=\"Swiftfin\", Token=\"\(token)\"", forHTTPHeaderField: "X-Emby-Authorization")
+            request.setValue(token, forHTTPHeaderField: "X-Emby-Token")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        do {
+            let (data, urlResponse) = try await URLSession.shared.data(for: request)
+            if let httpResponse = urlResponse as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                let words = try JSONDecoder().decode([String].self, from: data)
+                logger.info("ContentFilterService: Synchronized \(words.count) global blanket words via URLSession fallback")
+                return words
+            }
+        } catch {
+            logger.warning("ContentFilterService: Fallback global blanket words fetch failed: \(error.localizedDescription)")
+        }
+
+        return nil
+    }
 }

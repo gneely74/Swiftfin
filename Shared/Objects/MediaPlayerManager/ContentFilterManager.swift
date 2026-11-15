@@ -142,6 +142,17 @@ final class ContentFilterManager: ObservableObject {
     /// Asynchronous task managing the brief black-frame fade overlay during scene skip seeks.
     private var skipTransitionTask: Task<Void, Never>?
 
+    /// Asynchronous task keeping the filtered subtitle popup visible for a minimum readable linger
+    /// duration after brief word-level mute intervals end.
+    private var subtitleLingerTask: Task<Void, Never>?
+
+    /// Timestamp when the filtered subtitle popup was most recently shown for the current mute event.
+    private var subtitleShownAt: Date?
+
+    /// Minimum total display duration (in seconds) for the filtered subtitle popup so brief word-level
+    /// mutes (`~0.3s–0.6s`) remain legible on screen.
+    private let minimumSubtitleDisplaySeconds: TimeInterval = 2.5
+
     /// Tracks whether the subtitle overlay is currently active due to an audio mute event.
     private var isTemporarilyDisplayingFilteredSubtitle: Bool = false
 
@@ -590,19 +601,40 @@ final class ContentFilterManager: ObservableObject {
 
         guard !filteredSubtitles.isEmpty else { return }
 
+        subtitleLingerTask?.cancel()
+        subtitleLingerTask = nil
+
         // Display overlay subtitle if available from API
         isTemporarilyDisplayingFilteredSubtitle = true
+        subtitleShownAt = Date()
         let seconds = manager?.seconds.seconds ?? 0
         let match = Self.subtitleItem(at: seconds, offset: timeOffsetSeconds, in: filteredSubtitles)
         activeFilteredSubtitleText = match?.text
     }
 
-    /// Deactivates and hides the filtered subtitle overlay when the mute period ends.
+    /// Deactivates and hides the filtered subtitle overlay when the mute period ends,
+    /// lingering briefly if the mute was shorter than `minimumSubtitleDisplaySeconds`
+    /// so word-level mutes remain legible.
     private func disableFilteredSubtitleIfApplicable() {
         guard isTemporarilyDisplayingFilteredSubtitle else { return }
 
-        isTemporarilyDisplayingFilteredSubtitle = false
-        activeFilteredSubtitleText = nil
+        subtitleLingerTask?.cancel()
+        let elapsed = subtitleShownAt.map { Date().timeIntervalSince($0) } ?? minimumSubtitleDisplaySeconds
+        let remaining = minimumSubtitleDisplaySeconds - elapsed
+
+        if remaining > 0.05, activeFilteredSubtitleText != nil {
+            subtitleLingerTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                guard let self, !Task.isCancelled, !self.isMuted else { return }
+                self.isTemporarilyDisplayingFilteredSubtitle = false
+                self.activeFilteredSubtitleText = nil
+                self.subtitleShownAt = nil
+            }
+        } else {
+            isTemporarilyDisplayingFilteredSubtitle = false
+            activeFilteredSubtitleText = nil
+            subtitleShownAt = nil
+        }
     }
 
     // MARK: - Teardown
@@ -618,7 +650,10 @@ final class ContentFilterManager: ObservableObject {
         skipDismissTask = nil
         skipTransitionTask?.cancel()
         skipTransitionTask = nil
-        disableFilteredSubtitleIfApplicable()
+        subtitleLingerTask?.cancel()
+        subtitleLingerTask = nil
+        subtitleShownAt = nil
+        isTemporarilyDisplayingFilteredSubtitle = false
         currentItemID = nil
         activeFilter = nil
         cues = []
